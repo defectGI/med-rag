@@ -1,0 +1,13 @@
+# EXAMPLE / REPLACEABLE retrieval golden set. Placeholder to bootstrap the
+# eval harness — the `relevant_ids` here are illustrative and will not match a
+# real index until you fill them in. Copy to `retrieval_golden.jsonl`
+# (untracked) for real runs.
+#
+# `relevant_ids` are the ids a retriever puts on RetrievalResult — typically a
+# ChunkNode.node_id ("<doc_id>::c<N>") or a product node_id. List every chunk
+# that genuinely answers the query.
+#
+# Format: {"query": str, "relevant_ids": [str, ...], "lang": "tr", "k"?: int}
+{"query": "de1000 calisma sicakligi", "relevant_ids": ["ACME_PN5001_Datasheet::c7"], "lang": "tr"}
+{"query": "de1000 kac slotlu", "relevant_ids": ["ACME_PN5001_Datasheet::c3"], "lang": "tr"}
+{"query": "j1 konnektor pinout", "relevant_ids": ["ACME_PN5001_Datasheet::c11", "ACME_PN5001_Datasheet::c12"], "lang": "tr"}

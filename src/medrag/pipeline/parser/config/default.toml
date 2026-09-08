@@ -1,0 +1,187 @@
+# Parser tuning (behavior/threshold knobs).
+#
+# Type split (root CONFIG.md):
+#   * This file (TOML) = mathematical/behavioral tuning (thresholds, DPI, token
+#     budgets, concurrency, retries, feature toggles). Never hardcoded in code;
+#     it comes from here.
+#   * Model CONNECTION identity (LLM_*/VLM_*/VLM2_* provider/model/base_url/api_key/
+#     thinking/num_ctx + TABLE_STRUCT_PROVIDER/MODEL/BASE_URL/API_KEY) is NOT here
+#     — it lives in .env (read by llm/__init__.py). Root README: "one place for
+#     models, parser/.env".
+#   * Paths (STORAGE_*/PDF_CROP_DIR) and deploy-specific PDF_TESSERACT_LANG live in .env.
+#
+# PRECEDENCE (last writer wins): this default.toml → the optional partial TOML
+# pointed to by PARSER_CONFIG → env variables. So every tuning knob can still be
+# overridden by its UPPER_CASE env variable name (`pipeline/cli/config/*.env`
+# profiles keep working that way); the defaults themselves live here, commented, in a
+# single source of truth. No defaults in code — removing a key from here makes
+# loading fail loudly; unknown keys are rejected.
+
+[image_ocr]
+# Turn visual OCR (VLM-based image transcription) fully on/off.
+# DIFFERENCE from `[visual] exclude_types`: that one is type-based and requires
+# `[visual] classify` to be on; this one is unconditional. env: IMAGE_OCR_ENABLED.
+# When off, `Image.ocr_text` is never produced. The chunker already does not put
+# this text into the chunk BODY ([images] inject_ocr = false); it only carried it
+# on the structured channel -- so turning it off costs retrieval nothing.
+enabled = true
+# An OCR reading below this confidence threshold (0..1) is not stored.
+confidence_threshold = 0.7
+# Token budget per VLM image-transcription call.
+max_tokens = 1024
+# Parallel visual-OCR workers.
+concurrency = 4
+# Local OCR fallback on VLM failure: "tesseract" enables it; empty = off.
+fallback = ""
+
+[pdf]
+# Page/crop render resolution (DPI).
+render_dpi = 150
+# Use the VLM on hybrid/scanned pages.
+vlm = true
+# Token budget per PDF VLM call.
+vlm_max_tokens = 8192
+# Heading reconciliation pass.
+heading_reconcile = true
+# Switch to full-page render above this many vector objects.
+fullpage_render_min_vector = 250
+# Minimum hit count to flag a broken CMap encoding.
+broken_cmap_min = 5
+# A page counts as scanned when text coverage is below this.
+scanned_coverage_min = 0.5
+# Line match ratio threshold.
+line_match = 0.8
+# Cell/text containment ratio threshold.
+containment = 0.9
+# Enable the Tesseract page-detector fallback.
+tesseract_fallback = true
+
+[pdf.table]
+# The referee model is consulted when the deterministic grid's own confidence is
+# below this.
+bands_min_confidence = 0.7
+# Minimum content coverage to accept a referee grid.
+struct_min_coverage = 0.9
+
+[describe]
+# Turn description generation fully on/off. env: DESCRIBE_ENABLED.
+# When off, `types` below is not consulted and `visual_check` never runs either
+# (the verifier lives inside description generation). Table descriptions turn
+# off too -- those are LLM-generated from the cells and DO enter the chunk body
+# ([visual] inject_description = true), so that is the one real retrieval loss.
+enabled = true
+# "Describable block" description generation -- knobs shared by ALL types
+# (see parsers/base.py `DescribableBlock`, describe/core.py). A table is not a
+# separate category here, just a more deterministic member: the only thing that
+# changes per type is the STRATEGY (table -> LLM from cells; chart/SmartArt ->
+# deterministic from their own XML, no model; other visuals -> VLM + context).
+#
+# Which types get a natural-language description. A subset of the taxonomy
+# ("[visual] types"); a type removed here stays a label + placeholder only.
+# decorative/product_photo/unknown are NOT in the default: decorative has no
+# content worth describing, product_photo's OCR is usually enough, unknown is
+# ambiguous. But the list is config -- if there is valuable content falling to
+# unknown ("a weirdly drawn chart", say), just add "unknown" here; no code change.
+types = ["table", "chart", "block_diagram", "technical_drawing", "flowchart"]
+# Token budget per VLM-vision description call (the table strategy uses its own
+# fixed budgets: describe/table.py).
+max_tokens = 512
+# Parallel description workers (env: DESCRIBE_CONCURRENCY).
+concurrency = 4
+# Visual-type classification confidence threshold (0..1) — for VLM-vision visuals
+# ONLY (does not affect table/chart/SmartArt). When the classification's
+# confidence is BELOW this value, the description prompt does not push the type
+# as HARD FACT: it falls back to the "unknown" strategy (the humble "if you
+# can't see it, say so" guidance), so a misclassified crop produces a
+# low-confidence technical description in a safe tone instead of confident
+# fabrication. The block still carries its real visual_type + confidence in the
+# IR (only the PROMPT changes). 0.0 = off. NOTE: qwen2.5vl's confidence
+# calibration could not be measured on this machine; 0.4 is a cautious STARTING
+# threshold (it kicks in without over-suppressing). On the GPU box, tune against
+# the real distribution: lower it if too many visuals fall to "unknown", raise
+# it if fabrications appear. env: DESCRIBE_MIN_VISUAL_CONFIDENCE.
+min_visual_confidence = 0.4
+# Minimum crop edge for VLM-vision (pixels): a visual whose SHORTEST edge is
+# below this is never described at all, it stays type + placeholder only. Unlike
+# the confidence threshold, this one is MODEL-INDEPENDENT and objective — a crop
+# under 48px cannot be read by any model, so describing it would only invite
+# fabrication (e.g. a 47×40 NI logo -> "System block + arrow"). That is why the
+# default is NOT 0: it is an objectively safe lower bound. 0 = off. env:
+# DESCRIBE_MIN_VISUAL_EDGE_PX.
+min_visual_edge_px = 48
+# Verify VLM-vision descriptions with a second vision call + retry if needed
+# (the visual counterpart of the table's [table] llm_check/check_retries). The
+# auditor looks at THE IMAGE ITSELF and rejects a description that claims an
+# object/label/value/appearance that is not visible; the rejection reason is fed
+# to the next attempt as a hint. On single-GPU Ollama this means a 2nd (plus one
+# per retry) vision call per visual. ON: we are wholly against fabrication, so
+# quality is preferred over cost. Set 0/false if cost becomes a problem. env:
+# DESCRIBE_VISUAL_CHECK.
+visual_check = true
+# MAXIMUM number of attempts while visual_check is on (first attempt included;
+# same semantics as the table's [table].check_retries). If the auditor rejects,
+# the description is rewritten with the reason as a hint, up to this number.
+# env: DESCRIBE_VISUAL_CHECK_RETRIES.
+visual_check_retries = 3
+
+[describe.context]
+# Add the text around the described block (heading chain + preceding/following
+# paragraphs) to the prompt — the concept was never table-specific: the sentence
+# introducing a block diagram also states its subject.
+enabled = false
+# Number of context paragraphs before the block.
+before = 1
+# Number of context paragraphs after the block.
+after = 1
+# Maximum characters per context paragraph.
+max_chars = 400
+
+[table]
+# Knobs specific to the TABLE strategy only (shared ones are in [describe]).
+# The table's real difference: it has cell data — its render can be row-limited,
+# its description can be verified and retried, its facts pass the digit-check.
+# Maximum table rows sent to the LLM per call (0 = unlimited).
+max_rows = 150
+# Enable LLM verification of descriptions.
+llm_check = false
+# Enable facts extraction. Tables only: the digit-check gate needs real cell
+# data; a pixel-based description has no source to verify against.
+facts = true
+# Enable LLM header inference.
+header_llm = true
+# Maximum description attempts while verification is on.
+check_retries = 3
+
+[table_struct]
+# Token budget for grid transcription of a region (vlm referee).
+max_tokens = 8192
+
+[progress]
+# Terminal progress bars (when tqdm is installed and stderr is a real terminal).
+bar = true
+
+[visual]
+# Label every visual region with a taxonomy type (via VLM). When off, no region
+# is classified (legacy behavior): table candidates are always attempted, images
+# are always processed.
+classify = true
+# Extract a deterministic description from native chart data (docx/pptx/xlsx
+# c:chart XML) (no VLM/LLM call — chart_extract.py). When off, the chart block
+# is STILL produced (with its type label); only the description from the XML is
+# skipped — content never disappears silently at any setting.
+extract_charts = true
+# Extract a deterministic description from SmartArt node text (docx/pptx
+# DrawingML diagram data XML) (no VLM — smartart_extract.py). SmartArt has no
+# pixels (render infrastructure is a separate job) but its node text sits in its
+# own XML — same rationale as charts: the source's own data, not a model guess.
+# When off, SmartArt stays a type label (block_diagram) only.
+extract_smartart = true
+# A visual labeled with one of these types gets no content at parse time (no
+# OCR/description) — only its existence + type + crop path are written to the IR.
+# Empty list = no type excluded (default: everything included).
+exclude_types = []
+# Taxonomy — adding a new type just means adding a string here.
+types = ["table", "chart", "block_diagram", "technical_drawing",
+         "flowchart", "product_photo", "decorative", "unknown"]
+# Token budget per classification VLM call.
+max_tokens = 512

@@ -1,0 +1,26 @@
+# =============================================================================
+# LOCAL DEVELOPMENT override. `docker compose up` automatically layers this
+# file ON TOP of compose.yaml (no separate `-f` needed).
+#
+# *** There is ABSOLUTELY NO bind mount in PRODUCTION (`compose.yaml`) -- and
+# there must not be: in production the code in the image is the code of the
+# deployed sha (the same-commit/same-image rule); a bind mount punches a hole
+# in that guarantee. This file only lives on a developer machine; the
+# production deployment never sees it. ***
+#
+# What it gives: overlays the code (src/ + packages/) onto the image without
+# baking it in -- the editable packages installed via `uv sync --frozen` bind
+# to /app/src and /app/packages through .pth files, so the bind mount IS the
+# editable-code path; gunicorn --reload reuses the web UI on source changes.
+# =============================================================================
+
+services:
+  web:
+    volumes:
+      - ./src:/app/src
+      - ./packages:/app/packages
+    # webapp manages its own SSE streams; --reload + gthread work together
+    # (reload is a separate management process, it does not touch the worker
+    # class).
+    command: >-
+      gunicorn --reload -w 1 --threads 8 -b 0.0.0.0:8507 "medrag.api.webapp:create_app()"

@@ -1,0 +1,142 @@
+:root {
+  --bg: #f7f7f8;
+  --panel-bg: #ffffff;
+  --text: #1a1a1a;
+  --muted: #6b6b70;
+  --border: #e2e2e5;
+  --fresh: #2e7d46;
+  --stale: #b8460e;
+  --notrun: #8a8a90;
+  --accent: #3355cc;
+  --failed: #b3261e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16161a;
+    --panel-bg: #1f1f24;
+    --text: #ececee;
+    --muted: #9a9aa2;
+    --border: #33333a;
+    --fresh: #4caf6b;
+    --stale: #e07a4a;
+    --notrun: #6f6f76;
+    --accent: #7c94ff;
+    --failed: #e5675e;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+header {
+  padding: 1.5rem 2rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+header h1 { margin: 0 0 0.25rem; font-size: 1.4rem; }
+.sub { color: var(--muted); margin: 0.25rem 0; font-size: 0.9rem; }
+.ingest-meta { color: var(--muted); font-size: 0.8rem; }
+
+main { padding: 1rem 2rem 3rem; max-width: 1100px; margin: 0 auto; }
+
+section { margin-bottom: 2.5rem; }
+section h2 { font-size: 1.05rem; margin-bottom: 0.75rem; }
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+.card {
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+}
+
+.card .stage-name { font-weight: 600; text-transform: uppercase; font-size: 0.75rem; color: var(--muted); }
+.card .stage-status { font-size: 1.6rem; font-weight: 700; margin: 0.2rem 0; }
+.card .stage-detail { font-size: 0.78rem; color: var(--muted); }
+
+.dot { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%; margin-right: 0.35rem; }
+.dot.fresh { background: var(--fresh); }
+.dot.stale { background: var(--stale); }
+.dot.notrun { background: var(--notrun); }
+
+.filter-row { display: flex; gap: 0.75rem; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; }
+.filter-row input, .filter-row select {
+  background: var(--panel-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+}
+.filter-row button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 0.4rem 0.8rem;
+  cursor: pointer;
+}
+
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+th, td { text-align: left; padding: 0.5rem 0.7rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+td:nth-child(4) { white-space: normal; max-width: 420px; }
+th { color: var(--muted); font-weight: 600; background: var(--panel-bg); }
+tbody tr:hover { background: var(--panel-bg); }
+
+/* Landing page -- right after the header, before the main content (needs no
+   extra click). */
+#dashboard {
+  padding: 1rem 2rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  max-width: 1100px;
+  margin: 0 auto;
+}
+#dashboard h2 { font-size: 1.05rem; margin: 0 0 0.75rem; }
+.dashboard-headline { display: flex; align-items: baseline; gap: 0.75rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.outcome-badge {
+  font-weight: 700;
+  font-size: 1.1rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 6px;
+  color: #fff;
+}
+.outcome-badge.fresh { background: var(--fresh); }
+.outcome-badge.stale { background: var(--stale); }
+.outcome-badge.failed { background: var(--failed); }
+.outcome-badge.notrun { background: var(--notrun); }
+.dashboard-date { color: var(--muted); font-size: 0.85rem; }
+.dashboard-counters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.75rem;
+}
+.counter {
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 0.9rem;
+}
+.counter-value { font-size: 1.5rem; font-weight: 700; }
+.counter-label { font-size: 0.78rem; color: var(--muted); }
+
+#graph-svg { background: var(--panel-bg); border: 1px solid var(--border); border-radius: 8px; }
+.graph-node rect { fill: var(--panel-bg); stroke: var(--accent); }
+.graph-node text { fill: var(--text); font-size: 11px; }
+.graph-edge { stroke: var(--muted); stroke-width: 1.2; }
+.graph-node.center rect { stroke-width: 2.5; }
+
+#graph-detail, #cascade-result { font-size: 0.85rem; color: var(--muted); margin-top: 0.5rem; }
+#cascade-result .warn { color: var(--stale); font-weight: 600; }
+#cascade-result .ok { color: var(--fresh); font-weight: 600; }

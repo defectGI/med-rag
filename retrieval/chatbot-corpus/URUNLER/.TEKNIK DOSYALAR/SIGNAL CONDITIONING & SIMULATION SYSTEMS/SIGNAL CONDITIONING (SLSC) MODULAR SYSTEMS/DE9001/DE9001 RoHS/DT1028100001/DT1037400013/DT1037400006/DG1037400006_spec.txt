@@ -1,0 +1,56 @@
+IPC Class:								II
+Base Material:							FR-4
+No. of Layers:							18
+PCB Dimensions:							259 x 240 mm
+PCB Thickness:							2.4 mm
+PCB Color:								Blue
+Top-Bottom Overlay Color:				White
+Surface Finish:							ENIG
+Copper Weight:							
+			Top Layer:		1/2oz
+			Inner Layer 1:	1oz
+			Inner Layer 2:	1/2oz
+			Inner Layer 3:	1oz
+			Inner Layer 4:	1/2oz
+			Inner Layer 5:	1oz
+			Inner Layer 6:	1/2oz
+			Inner Layer 7:	1oz
+			Inner Layer 8:	1oz
+			Inner Layer 9:	1oz
+			Inner Layer 10:	1oz
+			Inner Layer 11:	1/2oz
+			Inner Layer 12:	1oz
+			Inner Layer 13:	1/2oz
+			Inner Layer 14:	1oz
+			Inner Layer 15:	1/2oz
+			Inner Layer 16:	1oz
+			Bottom Layer:	1/2oz
+Via In Pad:								Yes
+Material TG Minimum:					170'  
+Final Inspection Report(soft copy): 	Yes
+Impedance Control:						Yes
+	
+	Layer	Ref. Layer	Impedance	Width/Space
+	  1			2			50		4 mil
+	  1			2			100		4 mil / 7 mil
+	  
+	  3			2&4			50		3.5 mil
+	  3			2&4			100		3.5 mil / 7.5 mil
+	  
+	  5			4&6			50		3.5 mil
+	  5			4&6			100		3.5 mil / 7.5 mil
+	  
+	  7			6&8			50		3.5 mil
+	  7			6&8			100		3.5 mil / 7.5 mil
+	  
+	  12		11&13		50		3.5 mil
+	  12		11&13		100		3.5 mil / 7.5 mil
+	  
+	  14		13&15		50		3.5 mil
+	  14		13&15		100		3.5 mil / 7.5 mil
+	  
+	  16		15&17		50		3.5 mil
+	  16		15&17		100		3.5 mil / 7.5 mil
+	  
+	  18		17			50		4 mil
+	  18		17			100		4 mil / 7 mil

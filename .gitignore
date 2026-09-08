@@ -1,0 +1,190 @@
+# ---------------------------------------------------------------
+# Secrets / environment
+#
+# All `.env` files are ignored. The `.env.example` files and the three
+# exceptions below are tracked directly: they never carry secrets
+# (paths/parameters only). NOTE: the pipeline env lives at
+# `src/medrag/pipeline/cli/.env`; the whitelist path follows it (the old
+# `!pipeline/.env` line was a dead rule -- there is no .env there anymore).
+# ---------------------------------------------------------------
+.env
+.env.*
+!.env.example
+!chatbot-corpus/document_info/.env
+!chatbot-corpus/product_info/.env
+!src/medrag/pipeline/cli/.env
+*.secrets
+
+# Old benchmark/config.json — NO LONGER READ: grading tuning moved to
+# benchmark/config/default.toml and the secret (api_key) to .env. A local
+# leftover copy can be deleted safely; kept ignored so it cannot be
+# committed by mistake.
+benchmark/config.json
+
+# facts/: home of the information layer (spec DB). The canonical spec_key
+# dictionary (facts/vocabulary/) stays committed. The entries further down in
+# this block are DATA ballast — they exist on disk but are deliberately not
+# tracked: facts/db/specs.db + specs.db.legacy_* copies, facts/queue/*.jsonl,
+# facts/ledger/, facts/absent/, facts/snapshots/, facts/extraction_runs/.
+# CAUTION: the generic `build/` rule below means there must be NO directory
+# named `build` under facts/; the `runs/` and `review/` rules would also
+# swallow the names facts/runs and facts/review — WHICH IS WHY the
+# ExtractionRun store is `facts/extraction_runs/` and NOT `facts/runs/`, and
+# why review_cli.py writes its reports to `facts/db/review_report_*.md`
+# instead of a colliding `facts/review/`.
+# specs.db runs in WAL mode; the -wal/-shm side files appear while a writer
+# connection is active — same discipline as specs.db itself, kept out of git.
+facts/db/specs.db
+facts/db/specs.db-wal
+facts/db/specs.db-shm
+facts/db/specs.db.legacy_2026-07-28_08-05-41
+facts/db/specs.db.legacy_2026-07-31_13-10-51
+facts/db/specs.db.legacy_2026-08-03_14-36-13
+facts/db/specs.db.legacy_2026-08-03_15-30-48
+facts/db/specs.db.legacy_2026-08-03_15-43-41
+facts/db/specs.db.legacy_2026-08-04_08-16-31
+facts/db/specs.db.legacy_2026-08-04_10-13-35
+facts/db/specs.db.legacy_2026-08-06_09-36-09
+facts/db/specs.db.legacy_2026-08-07_08-44-12
+facts/db/specs.db.legacy_2026-08-07_11-05-25
+facts/db/specs.db.legacy_20260724
+facts/queue/no_key_match.jsonl
+facts/queue/ambiguous_product.jsonl
+facts/queue/new_key_proposals.jsonl
+facts/ledger/*.jsonl
+facts/absent/
+facts/snapshots/
+facts/extraction_runs/
+chatbot-corpus/product_info/product_nodes.json
+
+# ---------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# ---------------------------------------------------------------
+# Test / lint tools
+# ---------------------------------------------------------------
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# ---------------------------------------------------------------
+# OS junk / IDE
+# ---------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+
+# ---------------------------------------------------------------
+# Non-code / binary files (source data, outputs)
+# ---------------------------------------------------------------
+*.pdf
+*.png
+*.jpg
+*.JPG
+*.jpeg
+*.gif
+*.stp
+*.xlsx
+*.docx
+*.db
+# specs.db falls under the general `*.db` rule above; the explicit ignore
+# lines in the facts/ block cover it together with its `specs.db.legacy_*`
+# copies (which never matched `*.db` in the first place -- their names do not
+# end in ".db").
+*.log
+*.log.[0-9]*
+# chatbot persistent log directory (RotatingFileHandler;
+# src/medrag/api/logging_setup.py) -- kept as DATA in the old root-level
+# chatbot/ directory, not moved when the code moved.
+chatbot/logs/
+
+# ---------------------------------------------------------------
+# Large data folders
+# ---------------------------------------------------------------
+chatbot-corpus/BELGELER/
+chatbot-corpus/extra_corpus/
+
+# ---------------------------------------------------------------
+# Generated outputs / work directories
+# ---------------------------------------------------------------
+pipeline/chunk_test_output/
+pipeline/e2e_test_output/
+pipeline/extra_corpus_output/
+pipeline/full_parse_output/
+pipeline/scratch/
+pipeline/storage/
+parser/storage/*
+!parser/storage/README.md
+
+# Root storage/ + qdrant: Qdrant's own runtime data directory/binary. An
+# accidental commit once put ~1.3GB of this in git history; purging it fully
+# requires history rewriting (filter-repo + force-push).
+/storage/
+/qdrant
+# Qdrant's DEFAULT storage layout (collections/ + aliases/ + raft_state.json)
+# -- created when Qdrant is run with the repo root as its working directory.
+# It entered the repo once via an accidental `git add` (~624MB) and was
+# removed; ignored so it cannot return: binary data does not belong in the
+# repo.
+/collections/
+/aliases/
+/raft_state.json
+benchmark/benchmark_reports/
+# Timestamped output of a full-corpus run (run_full.py; each run writes
+# parsed/ images/ chunks/ + snapshot + manifest under runs/<ts>/)
+runs/
+# Scratch pipeline run of tools/baseline/capture_baseline.sh (temporary)
+tools/baseline/scratch/
+
+# ---------------------------------------------------------------
+# Tooling / editor
+# ---------------------------------------------------------------
+.claude/
+AGENTS.md
+review/
+
+# service/: session input/instruction files (prompt text given to a worker
+# agent), NOT a persistent document -- kept separate from real planning
+# documents.
+service/sanaprompt.txt
+
+# Session-internal TEMPORARY backups -- not persistent artifacts, just copies
+# taken in the moment to be able to roll back a run. The explicitly ignored
+# `specs.db.legacy_*` lines above are a SEPARATE category; the patterns below
+# lose all value when the session ends and must not bloat the repo.
+facts/experiments/*/results/*.bak_*
+facts/experiments/*/results_bak_*/
+# Per-chunk checkpoint of the catalog_chunk_ownership run (build_all.py --
+# used to resume if a run is cut short; the table itself lives in
+# `chunk_ownership_all.json`)
+facts/experiments/catalog_chunk_ownership/results/chunk_owner_progress.jsonl
+
+# DEVLOG/ROADMAP are not tracked in git -- they remain local per-component
+# work-log files.
+DEVLOG.md
+ROADMAP.md
+# Old/archived reports -- historical record, not active work anymore.
+/arsiv/
+
+# Session-internal workflow orchestration scripts -- temporary tooling,
+# NOT persistent artifacts.
+service/.workflow-*.js
+
+# Ownership output directory: runtime data whose default path is INSIDE the
+# code tree (core/paths.py::CHUNK_OWNERSHIP_DIR). In production it is
+# relocated under /corpus via CHUNK_OWNERSHIP_DIR; a local run drops it here
+# and it MUST NOT be committed.
+src/medrag/pipeline/facts/catalog_chunk_ownership/results/

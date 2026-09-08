@@ -1,0 +1,210 @@
+"""markdown_parser.py: setext headings, escaped pipes, table-cell images,
+and inline bold/italic/strike -> runs (see parsers/README.md).
+"""
+
+from __future__ import annotations
+
+from medrag.pipeline.parser.parsers.base import (
+    CodeBlock,
+    HeadingBlock,
+    ImageBlock,
+    Mark,
+    ParagraphBlock,
+    ParsedDocument,
+    TableBlock,
+)
+from medrag.pipeline.parser.parsers.markdown_parser import MarkdownParser
+
+
+def _parse(tmp_path, text: str, name: str = "doc.md"):
+    p = tmp_path / name
+    p.write_text(text)
+    return MarkdownParser().parse(p, "doc")
+
+
+# --- setext headings ---------------------------------------------------------
+
+
+def test_setext_h1_and_h2(tmp_path):
+    doc = _parse(tmp_path, "Title One\n=========\n\nTitle Two\n---------\n")
+    headings = [b for b in doc.blocks if isinstance(b, HeadingBlock)]
+    assert [(h.text, h.level) for h in headings] == [
+        ("Title One", 1), ("Title Two", 2)]
+
+
+def test_setext_not_triggered_after_list_item(tmp_path):
+    # a `---` right after a list item is not (mis)read as a setext underline
+    doc = _parse(tmp_path, "- item\n---\n")
+    assert not any(isinstance(b, HeadingBlock) for b in doc.blocks)
+
+
+def test_atx_heading_still_works(tmp_path):
+    doc = _parse(tmp_path, "## Section\n")
+    h = next(b for b in doc.blocks if isinstance(b, HeadingBlock))
+    assert (h.text, h.level) == ("Section", 2)
+
+
+# --- inline emphasis ----------------------------------------------------------
+
+
+def test_bold_italic_strike_runs(tmp_path):
+    doc = _parse(tmp_path, "This is **bold** and *italic* and ~~struck~~ text.")
+    p = next(b for b in doc.blocks if isinstance(b, ParagraphBlock))
+    assert p.text == "This is bold and italic and struck text."
+    assert "".join(r.text for r in p.runs) == p.text
+    marks = {r.text: r.marks for r in p.runs}
+    assert marks["bold"] == (Mark.BOLD,)
+    assert marks["italic"] == (Mark.ITALIC,)
+    assert marks["struck"] == (Mark.STRIKE,)
+
+
+def test_bold_italic_combined(tmp_path):
+    doc = _parse(tmp_path, "***both***")
+    p = next(b for b in doc.blocks if isinstance(b, ParagraphBlock))
+    assert set(p.runs[0].marks) == {Mark.BOLD, Mark.ITALIC}
+
+
+def test_single_underscore_italic_not_matched(tmp_path):
+    # deliberate scope limit: single-underscore italic is not supported, to
+    # avoid false positives on snake_case_identifiers.
+    doc = _parse(tmp_path, "a snake_case_word and _not_italic_ either")
+    p = next(b for b in doc.blocks if isinstance(b, ParagraphBlock))
+    assert p.runs == []
+    assert "snake_case_word" in p.text
+
+
+def test_asterisk_multiplication_not_matched(tmp_path):
+    doc = _parse(tmp_path, "3 * 4 * 5 equals sixty")
+    p = next(b for b in doc.blocks if isinstance(b, ParagraphBlock))
+    assert p.runs == []
+    assert p.text == "3 * 4 * 5 equals sixty"
+
+
+def test_heading_inline_runs(tmp_path):
+    doc = _parse(tmp_path, "# A **bold** heading\n")
+    h = next(b for b in doc.blocks if isinstance(b, HeadingBlock))
+    assert h.text == "A bold heading"
+    assert any(r.marks == (Mark.BOLD,) for r in h.runs)
+
+
+def test_list_item_runs(tmp_path):
+    doc = _parse(tmp_path, "- item **one**\n- item two\n")
+    paras = [b for b in doc.blocks if isinstance(b, ParagraphBlock)]
+    assert paras[0].text == "item one"
+    assert any(r.marks == (Mark.BOLD,) for r in paras[0].runs)
+    assert paras[1].runs == []
+
+
+# --- pipe tables: escaped pipes + cell images + cell runs --------------------
+
+
+def test_escaped_pipe_in_cell(tmp_path):
+    doc = _parse(tmp_path, "| A | B |\n|---|---|\n| x | y\\|z |\n")
+    table = next(b for b in doc.blocks if isinstance(b, TableBlock))
+    assert table.table.cells[1][1].plain_text() == "y|z"
+
+
+def test_table_cell_image_becomes_block(tmp_path):
+    doc = _parse(tmp_path, "| A |\n|---|\n| ![alt](pic.png) |\n")
+    table = next(b for b in doc.blocks if isinstance(b, TableBlock))
+    images = [b for b in doc.blocks if isinstance(b, ImageBlock)]
+    assert len(images) == 1
+    assert images[0].locator == {"src": "pic.png"}
+    assert images[0].marker in table.table.cells[1][0].plain_text()
+
+
+def test_table_cell_bold_runs(tmp_path):
+    doc = _parse(tmp_path, "| A |\n|---|\n| **bold cell** |\n")
+    table = next(b for b in doc.blocks if isinstance(b, TableBlock))
+    cell = table.table.cells[1][0]
+    assert cell.plain_text() == "bold cell"
+    assert any(Mark.BOLD in r.marks for r in cell.blocks[0].runs)
+
+
+# --- fenced code blocks -------------------------------------------------------
+
+
+def test_fenced_code_block_with_language(tmp_path):
+    doc = _parse(tmp_path, "```python\nx = 3 * 4\n# not a heading\n```\n")
+    code = next(b for b in doc.blocks if isinstance(b, CodeBlock))
+    # inner code only (fences dropped), and `#`/`*` inside are literal, not markup
+    assert code.text == "x = 3 * 4\n# not a heading"
+    assert code.language == "python"
+    assert not any(isinstance(b, HeadingBlock) for b in doc.blocks)
+
+
+def test_fenced_code_block_without_language(tmp_path):
+    doc = _parse(tmp_path, "```\nplain\n```\n")
+    code = next(b for b in doc.blocks if isinstance(b, CodeBlock))
+    assert code.text == "plain"
+    assert code.language is None
+
+
+# --- inline links -------------------------------------------------------------
+
+
+def test_inline_link_run(tmp_path):
+    doc = _parse(tmp_path, "see the [docs](https://example.com/x) here")
+    p = next(b for b in doc.blocks if isinstance(b, ParagraphBlock))
+    assert p.text == "see the docs here"  # visible text only, no brackets/url
+    assert "".join(r.text for r in p.runs) == p.text
+    link = next(r for r in p.runs if r.link)
+    assert (link.text, link.link) == ("docs", "https://example.com/x")
+
+
+def test_image_not_parsed_as_link(tmp_path):
+    # `![alt](src)` must stay an image (ImageBlock), never a hyperlink run
+    doc = _parse(tmp_path, "![alt](pic.png)\n")
+    assert any(isinstance(b, ImageBlock) for b in doc.blocks)
+    assert not any(
+        r.link for b in doc.blocks if isinstance(b, ParagraphBlock) for r in b.runs)
+
+
+def test_code_and_link_survive_json_roundtrip(tmp_path):
+    doc = _parse(tmp_path, "a [x](http://y) b\n\n```js\nvar a=1;\n```\n")
+    back = ParsedDocument.from_json(doc.to_json())
+    code = next(b for b in back.blocks if isinstance(b, CodeBlock))
+    assert (code.text, code.language) == ("var a=1;", "js")
+    para = next(b for b in back.blocks if isinstance(b, ParagraphBlock))
+    assert any(r.link == "http://y" and r.text == "x" for r in para.runs)
+
+
+# --- heading anchor_id ----------------------------------------------------------
+
+
+def test_atx_heading_implicit_slug(tmp_path):
+    doc = _parse(tmp_path, "## Installation Guide\n")
+    h = next(b for b in doc.blocks if isinstance(b, HeadingBlock))
+    assert h.anchor_id == "installation-guide"
+
+
+def test_explicit_attr_id_wins_over_slug(tmp_path):
+    doc = _parse(tmp_path, "## Installation Guide {#setup}\n")
+    h = next(b for b in doc.blocks if isinstance(b, HeadingBlock))
+    assert h.text == "Installation Guide"  # attr-list stripped from text
+    assert h.anchor_id == "setup"
+
+
+def test_setext_heading_gets_anchor_id(tmp_path):
+    doc = _parse(tmp_path, "Title One\n=========\n")
+    h = next(b for b in doc.blocks if isinstance(b, HeadingBlock))
+    assert h.anchor_id == "title-one"
+
+
+def test_slugify_drops_punctuation_and_collapses_spaces(tmp_path):
+    doc = _parse(tmp_path, "## Hello, World!  Foo_Bar\n")
+    h = next(b for b in doc.blocks if isinstance(b, HeadingBlock))
+    assert h.anchor_id == "hello-world-foo_bar"
+
+
+def test_duplicate_heading_slugs_get_numeric_suffix(tmp_path):
+    doc = _parse(tmp_path, "## Notes\n\ntext\n\n## Notes\n\nmore\n\n## Notes\n")
+    headings = [b for b in doc.blocks if isinstance(b, HeadingBlock)]
+    assert [h.anchor_id for h in headings] == ["notes", "notes-1", "notes-2"]
+
+
+def test_heading_with_no_slugable_chars_has_no_anchor_id(tmp_path):
+    doc = _parse(tmp_path, "## !!!\n")
+    h = next(b for b in doc.blocks if isinstance(b, HeadingBlock))
+    assert h.anchor_id is None
+    assert "anchor_id" not in h.to_dict()

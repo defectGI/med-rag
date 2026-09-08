@@ -1,0 +1,15 @@
+# Base conda environment: interpreter + pip only.
+# Module-specific and dev dependencies are NOT listed here — they live as
+# optional-dependency groups in pyproject.toml and are installed with pip
+# inside this env (e.g. `pip install -e ".[raptor]"`). This keeps conda
+# responsible for the interpreter and lets each module opt into exactly the
+# libraries it needs, instead of one shared dependency list every module
+# is forced to carry.
+name: retrieval
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - -e .[dev]

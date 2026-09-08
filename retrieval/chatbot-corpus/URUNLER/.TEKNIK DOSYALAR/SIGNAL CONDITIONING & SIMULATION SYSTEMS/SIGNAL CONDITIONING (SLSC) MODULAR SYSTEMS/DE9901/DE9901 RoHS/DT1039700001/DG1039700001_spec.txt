@@ -1,0 +1,14 @@
+•	Base Materal: FR-4
+•	No. of Layers: 4
+•	PCB Dimensions: 30.22 x 101.86mm
+•	PCB Thicness: 2.4 mm
+•	PCB Color: Blue
+•	Top-Bottom Overlay Color: White
+•	Surface Finish: ENIG
+•	Copper Weight: 1oz.
+•	Final Inspection Report(soft copy): Yes
+•	Impedance Control : YES
+				- Top Layer: SING, w=10mil, Ref= Layer 1, Target Impedance: 50 Ohm
+				- Bottom Layer: SING, w=10mil, Ref= Layer 2, Target Impedance: 50 Ohm
+
+

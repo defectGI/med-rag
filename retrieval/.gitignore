@@ -1,0 +1,68 @@
+# --- Environments & secrets ---
+# Mirrors the root .gitignore: real .env files are always ignored.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.installed.cfg
+
+# --- Virtual envs / conda ---
+.venv/
+venv/
+env/
+.conda/
+
+# --- Packaging / lock artifacts (keep environment.yml, ignore local resolver caches) ---
+pip-wheel-metadata/
+
+# --- Testing / coverage / typing ---
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# --- Notebooks ---
+.ipynb_checkpoints/
+
+# --- IDE / editor ---
+.vscode/
+.idea/
+*.swp
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Local data & model artifacts (module-specific caches, vector stores, indices) ---
+# Each module writes its own runtime artifacts under a local-only path; nothing
+# under these should ever be committed, regardless of which module produced it.
+data/*
+!data/.gitkeep
+# Eval golden sets: commit the format README + replaceable examples only.
+# The user's real golden data (non-example) stays local.
+!data/eval/
+data/eval/*
+!data/eval/README.md
+!data/eval/*.example.jsonl
+cache/
+*.faiss
+*.index
+chroma_db/
+.chroma/
+*.sqlite3
+
+# --- Logs ---
+*.log
+logs/

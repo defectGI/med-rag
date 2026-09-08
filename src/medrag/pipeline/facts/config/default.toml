@@ -1,0 +1,89 @@
+# facts tuning defaults (root CONFIG.md: tuning lives here, connection/secrets
+# in `.env`, input paths in env -- the same convention used by vectorize/chunker).
+
+[scope]
+# doc_types fact extraction NEVER looks at (PROTOCOL KARAR-027).
+# PRODUCT_IMAGE (.png/.jpg) and STP (.stp) have no registered reader in
+# parser/parsers/registry.py -> parse is SKIPPED -> no chunks are produced;
+# the list is therefore effectively a no-op, its only real function is to
+# define the KARAR-025 `info_status=no_extractable_documents` boundary.
+# CE_DECLARATION and TECHNICAL_DRAWING are DELIBERATELY NOT listed --
+# both are spec-dense (KARAR-027 rationale, 2026-07-27 data review).
+exclude_doc_types = ["PRODUCT_IMAGE", "STP"]
+
+# RAPTOR summary nodes (tree_level >= 1) cannot serve as evidence -- their
+# text is LLM-generated and source_block_ids are empty. all_chunks.json also
+# carries document-level summary nodes (chunker enrichment/) and they fill
+# heading_path/page_* via aggregation (KARAR-015 anchor shape), so this
+# filter is REQUIRED, not an opt-in default.
+include_summary_nodes = false
+
+# NO LONGER READ (PROTOCOL KARAR-058 REVISED, 2026-08-04, same day). Old
+# behaviour: a document fanning out to more products than this number was
+# EXCLUDED entirely from fact extraction. It has been replaced by
+# chunk-based narrowing:
+# `facts/experiments/catalog_chunk_ownership/build_all.py` produces
+# `chunk_ownership_index`, which now filters each chunk by which
+# product(s) it belongs to, replacing document-level wholesale exclusion.
+# This line is NOT deleted -- if `discover.py::load_chunk_ownership_index`
+# cannot find any table (build_all.py never ran), it still falls back
+# safely to the old "exclude the multi-owner document entirely" behaviour,
+# but it does NOT read this value (the threshold is now fixed: >=2 owners
+# = look at the chunk table, exclude if the table is missing). If a
+# manual threshold is ever required, the code fixes it at
+# `owner_counts.get(did, 1) >= 2`; it can be moved back here.
+max_doc_owners = 1
+
+[queue]
+# Pass 2.5's queue-batch size (KARAR-020, 2026-07-27 revision): the queue is
+# not fitted into a single call to avoid the context limit, so it is split
+# into batches of this size. Batches are processed SEQUENTIALLY (not in
+# parallel); each batch sees the keys proposed/approved by the previous
+# batch (carry-forward).
+batch_size = 40
+
+[vocabulary]
+# A new spec_key proposal cannot enter the dictionary without passing the
+# approval gate (KARAR-020 pass 2.5). This threshold is purely DIAGNOSTIC:
+# if a wave proposes more than this many new keys (a large jump over the
+# 433-key canonical dictionary), it is logged -- it does NOT auto-reject,
+# nor does it tighten the human approval gate.
+large_wave_warning_threshold = 15
+
+[llm]
+# Pass 1's (extract.py::extractor_from_env) real client response budget --
+# the CONFIG.md "tuning" example ("token budgets"), so it is connection
+# identity like PROVIDER/MODEL does NOT belong here. If a chunk with dense
+# content generates many atoms, the response can be truncated and returned
+# as invalid JSON (observed on real GPU run, 2026-07-29) -- increase if
+# truncation still occurs.
+max_tokens_extract = 4096
+
+[vlm]
+# Pass 4's (ROADMAP 13f) page-render + VLM verification pass -- covers only
+# ~28/772 multi-owner documents (see ROADMAP 13f). Connection identity
+# (provider/model/base_url/api_key) is NOT here -- it lives in the
+# FACTS_VLM_* block of facts/.env.example (2026-07-29 decision #1, kept
+# DELIBERATELY SEPARATE from FACTS_LLM_*).
+
+# Same value as parser/config's [pdf].render_dpi (the default actually used
+# in parser/.env's real conditions) -- facts keeps its own copy (does NOT
+# import parser, per root CLAUDE.md). 150 dpi brings an A4 page to roughly
+# 1240x1750 px: stays under most VLMs' image input size limits while
+# keeping table/label text readable -- a known middle ground.
+render_dpi = 150
+
+# Kept consistent with absent_scan.py's OpenAICompatAbsentScanner default
+# timeout (120.0) -- slightly more relaxed because a single request
+# carrying image + question may take a bit longer than text-only passes.
+timeout_s = 180.0
+
+# VLM's expected response is a short JSON (confirm/reject + free-text
+# rationale) -- larger than absent_scan.py's max_tokens=64 because the
+# rationale sentence in conversational language can be longer.
+max_tokens = 512
+
+# _fetch_pdf_region (parser/images/image_handler.py) uses PNG; facts's
+# render_page.py shares the same default -- lossless, no JPEG blocking
+# artefact risk on table/label text.
+page_render_format = "png"

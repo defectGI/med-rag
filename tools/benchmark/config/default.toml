@@ -1,0 +1,61 @@
+# benchmark default configuration (grading behavior / tuning knobs).
+#
+# Kind separation (see root CONFIG.md):
+#   * This file (TOML) = ONLY grading tuning (render / scoring / chunk knobs).
+#   * Model CONNECTION identity (provider / model / base_url / api_key /
+#     thinking / num_ctx) is NOT here -- it lives in .env (`VLM_*` / `LLM_*`),
+#     shared with parser/llm. The root README rule: "model settings live in
+#     one place, parser/.env -- the pipeline and benchmark both read it."
+#     benchmark reads this .env (fallback chain: --env-file -> ./.env ->
+#     parser/.env).
+#   * Run inputs (folder / scope / out) are NOT here -- CLI flags (-f / -s / -o).
+#
+# Principle (chunker pattern): no behavior-affecting number is hardcoded in
+# code, they all come from here; there are no Python defaults -- removing a
+# key here makes loading fail loudly. Unknown keys are rejected.
+# Override: write a partial TOML containing only the keys you want to change
+# and pass it via `--config path.toml`; missing keys fall back to these.
+
+[render]
+# PDF page render resolution (DPI). Sets the render quality, since the
+# model grades from page images.
+dpi = 150
+
+[grading]
+# Per-model response token budget (per document / window).
+max_tokens = 2048
+# Context window (tokens) used ONLY as a last resort -- when neither
+# --num-ctx nor the client's own enforced window is known -- to compare
+# against for the chunk trigger and size warning. Ollama uses its real
+# enforced window, so this rarely fires there.
+assume_context = 4096
+# Maximum number of pages sent to the model per document (0 = all pages).
+max_pages = 0
+
+[chunking]
+# Grade a document that does not fit one context window in page-aligned
+# chunks (when the estimated prompt exceeds 80% of the context window AND
+# a parser IR JSON sits next to the .md). false = the old single-call
+# behavior (a big document just warns).
+enabled = true
+# Pages per chunk window (0 = auto -- as many as fit the budget).
+pages_per_window = 0
+
+[weights]
+# Overall dimension weights. Overridable via --weights "accuracy=2,coverage=1,..."
+# on a per-run basis (overlays on top of these values).
+accuracy = 2.0
+coverage = 2.0
+clarity = 1.0
+
+[scope]
+# Visual types excluded from grading (from the parser's [visual] taxonomy:
+# table, chart, block_diagram, technical_drawing, flowchart, product_photo,
+# decorative, unknown). Visuals classified into these types have NONE of
+# their output -- presence, OCR text, generated description -- affect the
+# score. scope.md prose is the operational text that tells the judge about
+# this decision; this list is the config-side single-source record of the
+# same decision (the two are hand-aligned).
+# NOTE: distinct from the parser's own [visual] exclude_types -- THAT
+# stops parse-time content production; THIS excludes from grading.
+exclude_types = ["product_photo", "decorative", "unknown"]

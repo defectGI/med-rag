@@ -1,0 +1,91 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Wada Sanzo paleti -- fildişi zemin + güneş tonları (PLAN.md, Grup D).
+ * Light: Gofun/Torinoko fildişi ailesi; primary Yamabuki sarısı,
+ * accent Kaki turuncusu. Dark: Sumi mürekkep zemin, aynı sıcak vurgular.
+ */
+@layer base {
+  :root {
+    --background: 40 44% 96%;
+    --foreground: 30 8% 16%;
+    --card: 43 60% 98%;
+    --card-foreground: 30 8% 16%;
+    --primary: 39 79% 52%;
+    --primary-foreground: 30 20% 12%;
+    --secondary: 39 12% 50%;
+    --secondary-foreground: 40 30% 96%;
+    --muted: 41 38% 91%;
+    --muted-foreground: 35 8% 40%;
+    --accent: 22 67% 51%;
+    --accent-foreground: 40 40% 97%;
+    --destructive: 5 57% 44%;
+    --destructive-foreground: 40 40% 97%;
+    --success: 152 38% 38%;
+    --success-foreground: 90 40% 96%;
+    --warn: 38 90% 46%;
+    --warn-foreground: 30 20% 12%;
+    --border: 41 33% 85%;
+    --input: 41 33% 82%;
+    --ring: 39 79% 52%;
+    --radius: 0.65rem;
+  }
+
+  .dark {
+    --background: 28 10% 11%;
+    --foreground: 38 25% 91%;
+    --card: 28 9% 14%;
+    --card-foreground: 38 25% 91%;
+    --primary: 40 85% 60%;
+    --primary-foreground: 28 15% 10%;
+    --secondary: 30 8% 32%;
+    --secondary-foreground: 38 20% 90%;
+    --muted: 28 8% 19%;
+    --muted-foreground: 36 12% 65%;
+    --accent: 20 75% 60%;
+    --accent-foreground: 28 15% 10%;
+    --destructive: 5 60% 55%;
+    --destructive-foreground: 38 25% 95%;
+    --success: 152 32% 45%;
+    --success-foreground: 90 30% 94%;
+    --warn: 38 92% 55%;
+    --warn-foreground: 28 15% 10%;
+    --border: 28 8% 22%;
+    --input: 28 8% 25%;
+    --ring: 40 85% 60%;
+  }
+
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+}
+
+/* Kanıt rozetleri cevap metninde satır içi görünür */
+.citation-chip {
+  @apply inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium align-baseline cursor-pointer;
+  @apply bg-primary/15 text-primary hover:bg-primary/25;
+}
+
+/* Markdown görüntüleyici tipografisi (kullanıcı-dostu, B7) */
+.md-view h1 { @apply text-2xl font-bold mt-6 mb-3; }
+.md-view h2 { @apply text-xl font-bold mt-5 mb-2; }
+.md-view h3 { @apply text-lg font-semibold mt-4 mb-2; }
+.md-view h4 { @apply text-base font-semibold mt-3 mb-1; }
+.md-view p { @apply my-2 leading-relaxed; }
+.md-view ul { @apply list-disc pl-6 my-2; }
+.md-view ol { @apply list-decimal pl-6 my-2; }
+.md-view li { @apply my-0.5; }
+.md-view table { @apply w-full my-3 border-collapse text-sm; }
+.md-view th { @apply border px-2.5 py-1.5 bg-muted font-semibold text-left; }
+.md-view td { @apply border px-2.5 py-1.5 align-top; }
+.md-view blockquote { @apply border-l-4 border-primary/40 pl-3 my-3 italic text-muted-foreground; }
+.md-view code { @apply rounded bg-muted px-1 py-0.5 text-[13px]; }
+.md-view pre { @apply rounded-md bg-muted p-3 my-3 overflow-x-auto; }
+.md-view pre code { @apply bg-transparent p-0; }
+.md-view hr { @apply my-4; }
+.md-view img { @apply max-w-full rounded-md my-2; }

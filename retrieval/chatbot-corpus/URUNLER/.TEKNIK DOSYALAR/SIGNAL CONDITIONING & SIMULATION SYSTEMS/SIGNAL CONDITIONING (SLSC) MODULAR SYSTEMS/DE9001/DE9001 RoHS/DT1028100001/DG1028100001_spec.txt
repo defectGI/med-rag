@@ -1,0 +1,13 @@
+•	Base Materal: FR-4
+•	No. of Layers: 8
+•	PCB Dimensions: 281.9 x 144.32mm
+•	PCB Thicness: 1.6 mm
+•	PCB Color: Blue
+•	Top-Bottom Overlay Color: White
+•	Surface Finish: ENIG
+•	Copper Weight: 1oz.
+•	Via In Pad: Yes (Filled via)
+•	Final Inspection Report(soft copy): Yes
+•	Impedance Control : NO
+
+

@@ -1,0 +1,71 @@
+{
+  "name": "ecommerce",
+  "tables": [
+    {
+      "name": "customers",
+      "description": "People who have registered an account and can place orders.",
+      "columns": [
+        {"name": "id", "type": "integer", "description": "Surrogate primary key.", "primary_key": true, "sample_values": [1, 2, 3]},
+        {"name": "email", "type": "varchar(255)", "description": "Unique login/contact email.", "sample_values": ["ada@example.com", "grace@example.com"]},
+        {"name": "full_name", "type": "varchar(255)", "description": "Customer display name.", "sample_values": ["Ada Lovelace", "Grace Hopper"]},
+        {"name": "country", "type": "varchar(2)", "description": "ISO-3166 alpha-2 country code.", "sample_values": ["US", "GB", "TR"]},
+        {"name": "created_at", "type": "timestamp", "description": "When the account was created.", "sample_values": ["2024-01-15T09:30:00Z"]}
+      ]
+    },
+    {
+      "name": "categories",
+      "description": "Product categories, optionally nested via parent_id.",
+      "columns": [
+        {"name": "id", "type": "integer", "description": "Surrogate primary key.", "primary_key": true, "sample_values": [1, 2, 3]},
+        {"name": "name", "type": "varchar(100)", "description": "Category display name.", "sample_values": ["Electronics", "Books", "Home & Kitchen"]},
+        {"name": "parent_id", "type": "integer", "description": "Parent category id for nesting; NULL for top-level.", "sample_values": [null, 1]}
+      ],
+      "foreign_keys": [
+        {"column": "parent_id", "references_table": "categories", "references_column": "id"}
+      ]
+    },
+    {
+      "name": "products",
+      "description": "Items available for sale.",
+      "columns": [
+        {"name": "id", "type": "integer", "description": "Surrogate primary key.", "primary_key": true, "sample_values": [100, 101, 102]},
+        {"name": "name", "type": "varchar(255)", "description": "Product name.", "sample_values": ["USB-C Cable", "Mechanical Keyboard"]},
+        {"name": "category_id", "type": "integer", "description": "Category this product belongs to.", "sample_values": [1, 2]},
+        {"name": "price", "type": "numeric(10,2)", "description": "Unit price in USD.", "sample_values": [9.99, 129.00]},
+        {"name": "is_active", "type": "boolean", "description": "Whether the product is currently listed.", "sample_values": [true, false]}
+      ],
+      "foreign_keys": [
+        {"column": "category_id", "references_table": "categories", "references_column": "id"}
+      ]
+    },
+    {
+      "name": "orders",
+      "description": "A purchase placed by a customer; header-level order data.",
+      "columns": [
+        {"name": "id", "type": "integer", "description": "Surrogate primary key.", "primary_key": true, "sample_values": [5000, 5001]},
+        {"name": "customer_id", "type": "integer", "description": "The customer who placed the order.", "sample_values": [1, 2]},
+        {"name": "status", "type": "varchar(20)", "description": "Order lifecycle state.", "sample_values": ["pending", "paid", "shipped", "cancelled"]},
+        {"name": "total_amount", "type": "numeric(12,2)", "description": "Order grand total in USD.", "sample_values": [138.99, 9.99]},
+        {"name": "created_at", "type": "timestamp", "description": "When the order was placed.", "sample_values": ["2024-06-01T14:00:00Z"]}
+      ],
+      "foreign_keys": [
+        {"column": "customer_id", "references_table": "customers", "references_column": "id"}
+      ]
+    },
+    {
+      "name": "order_items",
+      "description": "Line items belonging to an order (order-to-product join table).",
+      "columns": [
+        {"name": "id", "type": "integer", "description": "Surrogate primary key.", "primary_key": true, "sample_values": [90001, 90002]},
+        {"name": "order_id", "type": "integer", "description": "The parent order.", "sample_values": [5000, 5001]},
+        {"name": "product_id", "type": "integer", "description": "The product purchased.", "sample_values": [100, 101]},
+        {"name": "quantity", "type": "integer", "description": "Units purchased for this line.", "sample_values": [1, 2, 3]},
+        {"name": "unit_price", "type": "numeric(10,2)", "description": "Price per unit at time of purchase.", "sample_values": [9.99, 129.00]}
+      ],
+      "foreign_keys": [
+        {"column": "order_id", "references_table": "orders", "references_column": "id"},
+        {"column": "product_id", "references_table": "products", "references_column": "id"}
+      ]
+    }
+  ]
+}

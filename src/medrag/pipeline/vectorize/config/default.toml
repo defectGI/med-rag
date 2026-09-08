@@ -1,0 +1,54 @@
+# vectorize tuning defaults (tuning lives here; connection/secrets go in
+# `.env`; input path via env — same convention as chunker's CHUNKER_INPUT_DIR
+# exception, see vectorize/.env.example).
+
+[embedding]
+# How many chunk texts go into a single embed call (without hitting the
+# provider's payload/timeout limits). Providers support batched embedding via
+# the `input` list on /v1/embeddings (same endpoint as chunker's
+# openai_compat.py).
+batch_size = 64
+timeout_seconds = 120
+
+# Also embed tree_level >= 1 (RAPTOR summary nodes)? When off, only leaves
+# (real chunk text) are vectorized. Default on: RAPTOR summaries are
+# independent retrieval units too (they can beat leaves on coarse-grained
+# questions) — chunker's production default already runs RAPTOR for real, so
+# there is no reason to produce the trees and not vectorize them.
+include_summary_nodes = true
+
+# Prefix the embedded text with the heading_path chain (e.g.
+# "Contents > Hardware Overview\n\n<chunk text>"). Default on: heading-less
+# one-sentence chunks (e.g. "Electrical: 5V") can cluster in the wrong
+# neighborhood when embedded without context; the heading chain adds cheap
+# context.
+prefix_heading_path = true
+heading_separator = " > "
+
+[qdrant]
+# Collection name — several embedding models/sizes may share one Qdrant
+# server, so the name carries the model name too and Qdrant fails loudly on a
+# mixed-size upsert (instead of writing into the wrong collection).
+# WARNING: the name here, EMBEDDING_MODEL in vectorize/.env and in the
+# chatbot's .env MUST stay aligned -- Qdrant does NOT verify that the name
+# matches the model that wrote the vectors. On a model change, rename the
+# collection here, update both .env files, and delete+recreate the old
+# collection, or every query fails with a dimension mismatch.
+collection_name = "medrag_chunks_qwen3_8b"
+distance = "cosine"
+upsert_batch_size = 128
+
+# If the collection already exists and the incoming embedding size does not
+# match its size: "error" (default, "fail loudly at the boundary" principle)
+# | "recreate" (DELETES and recreates the collection — enable by hand only
+# on a deliberate model change; carries data-loss risk).
+on_dim_mismatch = "error"
+
+[staleness]
+# Skip a scope that was previously embedded with the same signature (see
+# core.ChunkSet.signature). Off = every run re-embeds the whole corpus
+# (unlike chunker's regenerate-everything policy, the default here is ON:
+# embedding is a real remote LLM/GPU call — costly, unlike chunker's
+# local/free recomputation — and the CLI's --force flag is the one-off
+# bypass).
+skip_unchanged = true

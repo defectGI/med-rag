@@ -1,0 +1,20 @@
+•	Base Materal: FR-4 TG170
+•	No. of Layers: 8
+•	PCB Dimensions: 281.9 x 144.32mm
+•	PCB Thicness: 1.6 mm
+•	PCB Color: Blue
+•	Top-Bottom Overlay Color: White
+•	Surface Finish: ENIG
+•	Copper Weight: 1/2oz for all layers
+•	Final Inspection Report(soft copy): Yes
+•	Impedance Control : YES
+				- Top Layer: 
+						- SING, w=8mil, Ref= Layer 2, Target Impedance: 50 Ohm				
+				- Layer 3: 
+						- SING, w=5mil, Ref= Layer 2-Layer 4, Target Impedance: 50 Ohm
+				- Layer 6: 
+						- SING, w=5mil, Ref= Layer 4-Layer 6, Target Impedance: 50 Ohm
+				- Bottom Layer: 
+						- SING, w=8mil, Ref= Layer 7, Target Impedance: 50 Ohm
+
+

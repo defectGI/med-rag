@@ -1,0 +1,26 @@
+IPC Class:								III
+Base Material:							FR-4
+No. of Layers:							4
+PCB Dimensions:							47.887 x 22.36 mm
+PCB Thickness:							1.6 mm
+PCB Color:								Blue
+Top-Bottom Overlay Color:				White
+Surface Finish:							ENIG
+Via In Pad: 							Yes (Filled With Conductive)
+Material TG Minimum:					170'  
+Final Inspection Report(soft copy): 	Yes
+Impedance Control:						Yes
+	
+	Layer	Ref. Layer	Impedance	Width/Space
+	  1			2			78		13.5 mil/16 mil
+	  4			3			78		13.5 mil/16 mil
+	  
+Stack-up:
+	
+	Copper			1		1oz
+	Prepreg (FR4)		
+	Copper			2		1oz
+	Core (FR4)		
+	Copper			3		1oz
+	Prepreg	(FR4)			
+	Copper			4		1oz

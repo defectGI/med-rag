@@ -1,0 +1,99 @@
+# Keeps the build context small and predictable. The image is built ONLY from
+# these paths (the Dockerfile's COPYs): pyproject.toml, uv.lock, src/,
+# packages/, facts/db/ (only *.yaml remain -- the db rules below),
+# chatbot/text2sql/. Everything listed here never enters the context; a file
+# that contradicts the COPY pattern cannot reach the image even if it is
+# MISSING from this file (COPY uses explicit paths).
+
+# --- VCS / local environment --------------------------------------------------
+.git
+.gitignore
+.gitattributes
+.venv
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/.import_linter_cache
+**/*.pyc
+**/*.egg-info
+medrag.egg-info/
+
+# --- Secret files — must NEVER enter the image --------------------------------
+# compose reads `env_file: .env` from the HOST (docker compose CLI); an .env
+# inside the image is neither needed nor wanted (secrets never enter images).
+.env
+**/.env
+**/.env.*
+
+# --- Development / planning / documentation -----------------------------------
+notebooks/
+tools/
+# Exception: the CANONICAL dictionary of the facts stage. `run_full.py:91`
+# reads `_REPO_ROOT / "tools" / "spec_schema" / "spec_keys.yaml"` at
+# IMPORT time (SCHEMA_TEXT is built at module level) -- if the file is missing,
+# `import run_full` explodes with FileNotFoundError, i.e. the facts stage never
+# starts. Only this ONE file is re-included; the rest of tools/ (scripts/,
+# viz/, benchmark/) is not the image's business.
+!tools/spec_schema/spec_keys.yaml
+tests/
+**/tests/
+service/
+.claude/
+*.md
+
+# --- Data files ---------------------------------------------------------------
+# specs.db does NOT enter the image -- deliberately: it comes from the named
+# volume, and which copy of it ships is a deployment decision. schema*.yaml DO
+# enter (the Dockerfile's COPY expects them).
+*.db
+*.db-shm
+*.db-wal
+facts/db/*.legacy*
+facts/db/legacy_comparison_*
+facts/db/review_report_*
+facts/db/schema_pg.sql
+facts/db/schema_rag.sql
+*.parquet
+*.json.gz
+
+# --- Thick data/output directories (not code, not the image's job) ------------
+# chunker/storage/all_chunks.json (frozen corpus): read from a volume via
+# CHATBOT_CHUNK_CORPUS_PATH in the container; baking it into the image would
+# add megabytes and go stale on every nightly run.
+chunker/
+vectorize/
+retrieval/
+pipeline/
+parser/
+chatbot-corpus/
+# Exception: the CODE of the `scan` stage must be in the image --
+# run_nightly.py::stage_scan imports `chatbot-corpus/document_info/
+# classify_documents.py` via a repo-root-relative path (_DOCUMENT_INFO_DIR,
+# /app/chatbot-corpus/document_info); if the file is missing it dies with
+# RuntimeError. Only the LEAF CODE files are re-included --
+# document_nodes.json / product_nodes.json / BELGELER (the DATA) stay covered by
+# the line above and come from the /corpus volume.
+!chatbot-corpus/document_info/classify_documents.py
+!chatbot-corpus/document_info/config.py
+!chatbot-corpus/document_info/config/
+# The `products` stage imports `export_products.py` with the same path-based
+# pattern -- the CODE enters the image, the SOURCE EXCEL does NOT (it is data;
+# it comes from under `/corpus/product_info/`, `.xlsx` is gitignored anyway and
+# should never be carried into the image).
+!chatbot-corpus/product_info/export_products.py
+lineage_panel_data/
+arsiv/
+facts/queue/
+facts/ledger/
+facts/snapshots/
+facts/absent/
+facts/experiments/
+# Under chatbot/, ONLY text2sql/ enters (Dockerfile COPY); logs/ and
+# conversation records (personal data + phone numbers!) must never enter.
+chatbot/logs/
+# Local working outputs
+reports/
+logs/
+*.log
+dev.db

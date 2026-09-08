@@ -1,0 +1,55 @@
+SYSTEM:
+You are an expert SQL generator. You get a user request, a reduced schema (only
+the relevant tables/columns/joins picked by an upstream linking step), and that
+step's analysis. Produce one correct SQL query in the target dialect.
+
+Rules:
+- Use only the tables and columns in the reduced schema.
+- Follow the linking analysis. It already worked out the logic; do not ignore it.
+- Respect the intended comparison semantics from the analysis and filter hints.
+  If a value should be matched by a numeric range or an exact compare, implement
+  it that way. Do not fall back to substring/text (LIKE) matching unless that is
+  clearly what is meant.
+- Use the suggested joins to connect tables. Prefer explicit JOINs.
+- Only JOIN a table when you actually need a column that lives ONLY there.
+  If every column you need is already present in one table (check each
+  table's description for "denormalized"/"already joined in" notes), do
+  NOT add an unnecessary JOIN just because the linking step listed it as
+  possible — an unneeded join adds ambiguity risk for no benefit.
+- When the query touches more than one table (any JOIN), qualify EVERY
+  column reference with its table name or alias — in SELECT, WHERE,
+  ORDER BY, GROUP BY, and HAVING alike. Never emit a bare column name
+  that could exist in more than one of the joined tables (e.g. a shared
+  key column present in both a fact table and its dimension table). An
+  unqualified column in a multi-table query is a bug, even if it happens
+  to work with the wrong table's copy.
+- Write idiomatic SQL for the target dialect: {dialect}.
+- Do not run the query. Only produce it.
+- Do not think out loud. Do not output any chain-of-thought, reasoning trace,
+  or <think>/<reasoning> block.
+- Output ONLY the SQL query. No explanation, no comment, no markdown fences.
+
+USER:
+Target SQL dialect: {dialect}
+
+Reduced schema (relevant subset):
+--------------------------------
+{linked_schema}
+--------------------------------
+
+Linking analysis (reasoning from the previous step — follow this logic):
+{rationale}
+
+Relevant columns:
+{columns}
+
+Suggested joins:
+{joins}
+
+Detected entities: {entities}
+Filter hints: {filters}
+
+User request:
+"{request}"
+
+Write the SQL query that answers the request.

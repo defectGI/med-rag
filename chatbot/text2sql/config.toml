@@ -1,0 +1,63 @@
+[general]
+sql_dialect = "sqlite"
+# log_level: text2sql_native's own configure_logging() runs on every engine
+# setup (called by pipeline.py::Text2SQL.from_env) and overrides whatever
+# logging_setup.py configured — config.toml wins, not env/chatbot-config.
+# A previous WARNING setting silently swallowed every INFO log emitted by
+# text2sql, including the per-call token count. INFO is chosen over DEBUG
+# because DEBUG dumps schema, generated SQL, and likely prompt bodies to the
+# persistent log — drowning the token measurement in unrelated noise and
+# writing more to disk than necessary. INFO is sufficient to surface the
+# token-count line and the existing linking/generation/sql_error events.
+log_level = "INFO"
+strict_json = true
+
+[linking]
+temperature = 0.3
+top_p = 1.0
+# max_tokens: a previous value of 262144 was set here in error while aligning
+# num_ctx; when num_ctx was later lowered to 16384 this line was missed and
+# Ollama kept receiving num_predict=262144, which held gpu_gate's
+# sql_concurrency=1 semaphore for the full over-long single call (manifesting
+# as GPU lock-ups and full-service stalls on SQL errors). 8192 is half of the
+# 16384 num_ctx — generous enough that JSON linking output is not truncated
+# on the growing schema / more tables (which would otherwise fail with
+# StructuredOutputError), while still leaving plenty of room for prompt +
+# schema.
+max_tokens = 8192
+timeout_seconds = 180.0
+max_tables = 4
+# num_ctx (also set identically in the chatbot's LLM_*/RECONCILER_* /
+# CONTINUATION_* / INTENT_* env vars): the same gemma4 weights are used by
+# both this stage and the chatbot's general-purpose LLM_* role. Calling the
+# same model with two different num_ctx values kept triggering reload /
+# cold-start on Ollama, so the two were aligned. After a downgrade to
+# gemma4:26b + 64k (31b + 128k did not fit on the GPU), all aligned roles
+# use 26b + 65536; a previous deliberate split (linking 131072, others
+# 16384) was retired along with the thrash risk. max_tokens stays at 8192
+# because the original GPU lock-up was caused by raising num_ctx AND
+# max_tokens together — that combination is avoided here.
+# SQL_MODEL (qwen2.5-coder:32b) is a separate weight and is unaffected by
+# this alignment; its num_ctx has not yet been set in [generation] and is
+# left at the model default pending a separate measurement.
+num_ctx = 65536
+
+[generation]
+# raw = ask the SQL model for plain SQL text (no forced JSON envelope).
+# In raw mode the engine uses its packaged generation_raw.txt prompt, which
+# passes the linking step's analysis (rationale/columns/joins/filters) to the
+# SQL model. Best for coder/text-to-SQL models.
+output_mode = "raw"
+temperature = 0.0
+top_p = 1.0
+max_tokens = 4096
+timeout_seconds = 300.0
+# num_ctx is intentionally not set here: the SQL model (qwen2.5-coder:32b)
+# uses its own default context window in Ollama. Writing a large num_ctx here
+# would pre-allocate >30x KV cache on a 9GB VRAM. A one-week token-count
+# measurement will determine the right value.
+
+[retry]
+max_attempts = 3
+backoff_seconds = 1.0
+backoff_factor = 2.0

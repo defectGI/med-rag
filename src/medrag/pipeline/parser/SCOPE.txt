@@ -1,0 +1,125 @@
+SCOPE
+=====
+What the project does: converts docx, pptx, xlsx, html, markdown, pdf files into a common
+IR (ParsedDocument); structures tables, marks images, and preserves heading/list/formatting
+information.
+
+A native chart object embedded in docx/pptx/xlsx (a DrawingML `c:chart` part) IS read: its
+type (bar/line/pie/doughnut/scatter/area) plus its series (name, category labels, values) are
+extracted deterministically straight from the chart's own XML, no model call involved
+(`parsers/chart_extract.py`, shared by all three formats), and rendered as a structural
+description. Chart types outside that curated set (radar/bubble/surface/stock/3-D/combo) and
+malformed/unrecognized chart XML are skipped rather than mislabeled. What is genuinely out of
+scope: a chart embedded as a raster image (carried along as an ordinary image, OCR'd
+best-effort like any other, no series data), a vector-drawn chart on a PDF page (not a native
+chart part, not read), and xlsx pivot tables/pivot charts.
+
+docx
+----
+Reads headings (real style + style mimicked via formatting), bold/italic/underline/
+strikethrough/superscript-subscript formatting, lists, tables (including nested tables and
+in-cell images), formulas (as approximate text), images (including legacy and modern
+formats), and charts and SmartArt (both deterministic, see "Charts" above).
+
+pptx
+----
+Reads headings (real + style mimicked via formatting), bold/italic/underline/strikethrough
+formatting, lists, tables, images, embedded Excel/Word objects (as previews), slide notes, and
+charts (deterministic, see "Charts" above) and SmartArt (its own text, deterministic, via
+`parsers/smartart_extract.py`). Does not yet read formatting inside table cells.
+
+xlsx
+----
+Reads each sheet as a table, extracting merged cells, images embedded in the sheet, and
+charts (deterministic, see "Charts" above). Reads only the last calculated value, not the
+formula. Does not read pivot tables/pivot charts, does not read cell formatting.
+
+html
+----
+Reads headings, paragraphs, lists, tables (including nested tables and in-cell images),
+bold/italic/underline/strikethrough formatting, super/subscript, links (`<a href>`), and
+`<pre>` as a code block (verbatim, with a `language-x`/`lang-x` class as the language hint).
+A heading's own `id` attribute becomes `HeadingBlock.anchor_id`. Does not yet read
+formatting/links inside table cells.
+
+markdown
+--------
+Reads headings (ATX and setext), lists, tables, images, fenced code blocks (with the
+fence's language hint), inline links (`[text](url)`), and bold/italic/strikethrough
+formatting. A heading's `anchor_id` is its explicit kramdown `{#custom-id}` if present,
+else the implicit GitHub-flavored slug of its own text, deduped document-wide the way
+GitHub does (`section`, `section-1`, ...). Does not yet read blockquotes (`>`),
+reference-style links, or inline HTML.
+
+pdf
+---
+Checks whether a page is digital or scanned; reads it with a vision-language model when
+necessary and verifies it against an independent source (for text, table merges, and images).
+Embedded photos/diagrams are emitted as ImageBlocks with their true position at read time, on
+both digital and scanned pages; a figure with no geometric counterpart is marked "unverified"
+and does not silently disappear — if the VLM supplied its own bbox guess for the figure, the
+crop is tightened to that guess and stored as `source_crop`; if it didn't, no crop is produced
+at all. The images/ stage resolves an unverified ImageBlock from that stored `source_crop` when
+it has no fetchable locator bbox of its own, so it still gets an `image_id` and goes through
+OCR like any other image. Bold/italic is read
+deterministically from the run's own font name (the PDF equivalent of reading run style in
+docx): directly on digital pages (code path), and on digital pages read by the VLM (hybrid) by
+aligning back to the text-layer-verified text. This information is not read on scanned pages
+(scanned, no real text layer). Heading level (1-6) is ranked document-wide by font size — the
+same font size maps to the same level wherever it occurs in the document, not relative to a
+single page. On digital (code-path) pages, a run of consecutive heading-sized lines is merged
+before classification, so a wrapped title split across lines becomes one heading instead of
+several; a merged (or single) run ending in sentence punctuation, or a merged run over 14 words,
+is demoted to a paragraph instead, since that shape means ordinary prose set in a heading-sized
+font rather than a real title. Figure/table captions ("Table N:", "Figure N:") are never
+classified as headings. Running headers/footers (page boilerplate, URLs, notices) are dropped
+when the exact same text recurs, in the same top/bottom page-margin band, on several pages of the
+same document; page numbers (which differ per page, so can never repeat) are instead dropped by
+shape ("4", "4/10", "Page 4") when they sit in that same margin band. A one-off line near the
+page edge that matches neither check is always left alone. A table's own header row — set in a
+shaded band with no ruling line directly above it, so a ruling-only grid wouldn't include it — is
+recovered into the table instead of leaking out as a stray heading/paragraph (see tables/ below).
+On a two-column page, a line is only split at the column gutter
+when there's a real gap there — a full-width line that merely crosses the gutter x-coordinate
+with no such gap (a wrapped sentence, a table's own header row, ...) stays whole instead of being
+cut into two disconnected fragments. A "Contents"/"Table of Contents" heading's own entries (title
++ page number glued on the same line, as a numbered list item or a dot-leader paragraph) are pulled
+out of `blocks` into structured `metadata["toc"]` instead of being left as ordinary content
+indistinguishable from a real section of the same name elsewhere in the document; a two-column TOC
+layout (titles and page numbers split across the gutter into separate lines) is not yet recognized.
+
+Other stages
+------------
+images/: locates every image (including ones inside table cells) at its source and stores it by
+sha256; runs it through OCR with a VLM, and if meaningful, writes the corrected text into the
+image's own record. An unpaired pdf figure (no locator bbox) falls back to the `source_crop`
+audit render pdf_parser.py already stored for it, so it still gets resolved instead of staying
+empty. Does not resolve remote (http/https) image addresses.
+tables/: implemented, generates table descriptions. A table's row/column grid is built by
+`parsers/pdf_parser.py`, not here: pdfplumber's `find_tables()` only locates table regions (its
+bboxes are trusted), and the grid inside each region is rebuilt deterministically from the page's
+own vector geometry (`parsers/table_bands.py`, no model, no network) — fixing the two dominant
+lattice defects on borderless/zebra-shaded tables (an unshaded row's whole first column dropped;
+hairline "phantom" columns invented from a shaded cell's own padding). The optional
+`tables/structure/` referee (VLM, TableFormer, or an http service — `TABLE_STRUCT_PROVIDER`) is
+only consulted for a region the deterministic builder itself flags as low-confidence
+(`PDF_TABLE_BANDS_MIN_CONFIDENCE`, default 0.7); either way the model supplies only the grid
+SHAPE — each cell's text is placed from the PDF's own characters (never the model's own reading),
+and a referee proposal that captures too little of a region's real text
+(`PDF_TABLE_STRUCT_MIN_COVERAGE`, default 0.9) or invents a substantial number is rejected outright
+— the region then keeps the deterministic builder's own grid, never pdfplumber's raw lattice.
+Every table also carries a `table_confidence` (0..1) and `table_flags` (e.g. `"sparse-col0"`,
+`"content-dropout"`) recording how well its grid was pinned, from a check applied to the result
+regardless of which path built it. `TABLE_STRUCT_PROVIDER=tableformer`: groundwork is in, but out
+of scope for now — untested against real inference (no confirmation yet of the coordinate origin
+the model expects), so treat it as experimental until verified. Hybrid-reasoning models (Qwen3/3.5,
+gpt-oss, ...) default to thinking ON on both Ollama and OpenRouter, which previously caused table
+description to silently fail near-100% of the time (hidden reasoning tokens consumed the whole
+response budget, leaving content empty); `LLM_THINKING_ON`/`VLM_THINKING_ON`/`VLM2_THINKING_ON`
+now default to off to prevent this, see `tables/README.md`.
+render/: renders the IR back to Markdown (`render.markdown.to_markdown`; CLI:
+`scripts/to_markdown.py`). Emits plain GitHub-flavored Markdown where it suffices and
+inline HTML only where Markdown cannot represent the content (merged/nested table cells
+-> `<table>`; underline -> `<u>`; super/subscript -> the unicode char when one exists,
+else `<sup>`/`<sub>`). Lists are reconstructed from the flat block stream.
+webapp/: not yet implemented.

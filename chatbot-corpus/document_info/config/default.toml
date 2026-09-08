@@ -1,0 +1,57 @@
+# document_info tarama/sınıflandırma tuning'i.
+#
+# Tür ayrımı (kök CONFIG.md): bu dosya (TOML) tarama davranışının knoblarını
+# tutar — hangi dosyalar atlanır, hangi anahtar kelime hangi doc_type'a
+# eşlenir, ürün kodu deseni, hangi uzantı görsel/STP sayılır. Bunlar korpusa
+# göre değişebilecek DAVRANIŞ değerleridir (yeni doc_type, yeni exclude deseni),
+# bu yüzden koda gömülmez.
+#   * Yollar (PRODUCT_INFO_DIR/BELGELER_DIR/OUTPUT_PATH) BURADA DEĞİL — .env.
+#   * Sır yok (bu script model/ağ kullanmaz).
+#
+# İlke (chunker deseni): kodda default yok — buradan bir anahtar silinirse
+# yükleme yüksek sesle patlar; bilinmeyen anahtar reddedilir. Override:
+# `DOCUMENT_INFO_CONFIG` env'i kısmi bir TOML'a işaret ederse üstüne merge edilir.
+
+[scan]
+# os.walk sırasında tamamen atlanan klasör adları (alt ağacına hiç inilmez).
+exclude_dir_names = [".TEKNIK DOSYALAR"]
+# Dosya adı (büyük harfe çevrilmiş) bunlardan birini İÇERİYORSA atlanır.
+exclude_file_keywords = ["REVISION_HISTORY", "REVISION HISTORY"]
+# Bu ön eklerle başlayan dosyalar junk sayılır (Office kilit dosyaları, gizliler).
+junk_prefixes = ["~$", "."]
+# Tam adı (küçük harf) bu listede olan dosyalar junk sayılır.
+junk_names = ["thumbs.db"]
+# Görsel sayılan uzantılar (küçük harf, nokta dahil) → doc_type PRODUCT_IMAGE.
+image_extensions = [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".webp"]
+# CAD/STP uzantıları (küçük harf, nokta dahil) → doc_type STP.
+stp_extensions = [".stp", ".step"]
+
+[codes]
+# Ürün kodu deseni (Python regex). Dosya yolunda bu desenle eşleşen token'lar
+# product_nodes whitelist'ine karşı doğrulanır (tier-1 sahiplik çözümü).
+pattern = "DE[\\dX]{3,8}(?:-\\d+)?"
+
+# doc_type anahtar kelime tablosu. SIRA ÖNEMLİ — dosya adı (büyük harf) ilk
+# eşleşen tipin keyword'lerinden birini içerince o tip atanır (yukarıdan aşağı).
+# Hiçbiri tutmazsa STP/görsel uzantı kontrolü, o da tutmazsa doc_type = null.
+[[doc_types]]
+type = "CE_DECLARATION"
+keywords = ["CE_DECLARATION", "CE DECLARATION", "DECLARATION"]
+[[doc_types]]
+type = "TECHNICAL_DRAWING"
+keywords = ["TECHNICAL_DRAWING", "TECHNICAL DRAWING", "TECH_DRAWING"]
+[[doc_types]]
+type = "QUICK_START_GUIDE"
+keywords = ["QUICK_START", "QUICK START", "QSG"]
+[[doc_types]]
+type = "USER_MANUAL"
+keywords = ["USER_MANUAL", "USER MANUAL", "MANUAL"]
+[[doc_types]]
+type = "DATASHEET"
+keywords = ["DATASHEET", "DATA_SHEET", "DATA SHEET"]
+[[doc_types]]
+type = "BROCHURE"
+keywords = ["BROCHURE"]
+[[doc_types]]
+type = "CATALOGUE"
+keywords = ["CATALOGUE", "CATALOG"]

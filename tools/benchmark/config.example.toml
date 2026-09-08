@@ -1,0 +1,19 @@
+# Example benchmark tuning override. This file overlays the GRADING knobs
+# in `config/default.toml` -- write only what you want to change.
+#   python -m benchmark -f <folder> --config benchmark/config.example.toml
+#
+# NOTE: model/provider/api_key are NOT here -- those live in .env
+# (`VLM_*` / `LLM_*`; benchmark/.env is layered and falls through to
+# parser/.env) or via the --model/--provider flag. folder/scope/out are
+# also not here: CLI flag (-f / -s / -o) or .env defaults
+# (BENCHMARK_FOLDER/SCOPE/OUT). Details: config/default.toml header + README.
+
+[grading]
+# Example: grade the first 20 pages of every document (0 = all).
+max_pages = 20
+
+[weights]
+# Example: weight accuracy twice as much.
+accuracy = 2.0
+coverage = 1.0
+clarity = 1.0

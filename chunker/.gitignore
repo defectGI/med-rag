@@ -1,0 +1,19 @@
+# Chunker-specific ignore rules. Generic Python/IDE/OS/secret patterns live in
+# the root .gitignore.
+
+# Output directory: contents are generated; only the README documenting the
+# layout is tracked (same pattern as parser/storage).
+storage/*
+!storage/README.md
+
+# Exception: `all_chunks.json` is tracked so machines stay in sync; other files
+# under storage/ follow the general rule (ignored).
+!storage/all_chunks.json
+
+# Legacy output folder (pre-consolidation flat dump; storage/ is now written
+# by type). Free to clean up remaining files.
+out/
+
+# Local input copy (snapshot of a parser run; generated data, chunk tests
+# surface input via env and do not commit it).
+parsed_corpus/

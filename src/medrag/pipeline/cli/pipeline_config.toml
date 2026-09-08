@@ -1,0 +1,32 @@
+# pipeline's OWN tuning knobs (parse orchestration).
+#
+# Type split (root CONFIG.md): behavior tuning lives here; paths / input
+# filter (PARSER_DIR, BELGELER_DIR, DOCUMENT_NODES_PATH, DOC_TYPES, ...) live
+# in .env; model connection lives in parser/.env. No secrets.
+#
+# NAMING NOTE: this file and its loader are deliberately called
+# "pipeline_config", not "config" -- run_parse_pipeline used to add PARSER_DIR
+# to sys.path and import parser modules bare; a "config" module/directory
+# here would shadow parser's own config.py. The package is now imported as
+# a real package, so the shadowing risk no longer applies, but the name was
+# kept (two valid names, no churn).
+#
+# PRECEDENCE (last writer wins): this default -> environment variable. Each
+# knob can still be overridden via its UPPER_CASE env name (env wins). The
+# code has no defaults of its own -- deleting a key here breaks loading
+# loudly; unknown keys are rejected.
+
+[run]
+# Number of documents processed at once (ThreadPoolExecutor). A single local
+# Ollama serves one GPU, so increasing this usually only adds queueing and
+# contention. Default 1: kept sequential on the GPU box to avoid contention;
+# bump via env override (DOC_CONCURRENCY) on a stronger/multi-GPU machine.
+doc_concurrency = 1
+
+[health]
+# Pre-run known-answer probes (VLM/LLM canary). Skipped when disabled.
+enabled = true
+# After how many consecutive documents whose every VLM page read failed the
+# canary is re-probed (dead -> stop the run; alive -> loud warning and the
+# counter is reset).
+fail_streak = 3

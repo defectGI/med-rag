@@ -1,0 +1,1150 @@
+<!doctype html>
+<html lang="tr" data-palette="a">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>chatbot</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    color-scheme: light;
+    --radius: 0.85rem;
+    --radius-sm: 0.5rem;
+    --radius-full: 999px;
+    /* Inter (Google Fonts) shadcn'in varsayılan yazı tipi -- ağ yoksa
+       (kapalı iç ağ) sessizce sistem sans-serif'ine düşer, işlevsellik
+       ETKİLENMEZ, yalnız görünüm biraz sadeleşir. */
+    --font-sans: "Inter", -apple-system, "Segoe UI", Roboto, ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.05);
+    --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.05);
+    --shadow-md: 0 12px 28px -10px rgba(15, 23, 42, 0.22);
+    --error: #dc2626;
+    --error-bg: #fef2f2;
+  }
+
+  /* ============================================================
+     Wada Sanzo (A Dictionary of Color Combinations, 1933) -- 15 aday,
+     UYDURMA renk eşleştirmesi DEĞİL, kitabın kendi yayınlanmış plakalarından
+     (colorcombinations.org üzerinden tek tek doğrulandı). Her palette'in
+     --primary (mavi) + --accent (turuncu/sıcak) üyesi AYNI plakadan --
+     plakada soluk/krem bir üye varsa (Pale Lemon Yellow, Sulpher Yellow) o
+     --base olur, yoksa Acme beyazı --base olur (yalnız mavi+turuncu ikilisi
+     gerçek plakadan, beyaz marka nötrü -- plaka üyesi değilse yorumda belirtilir).
+     --base = %60'lık beyaza-yakın ailenin ÇAPASI, --primary = %30 mavi,
+     --accent = %10 turuncu. "Yakın renkler" (60/30/10'un her biri kendi
+     ailesiyle) alttaki ortak :root bloğunda bu 3 çapadan color-mix() ile
+     türüyor -- palet başına tek tek ton tanımlamaya gerek yok.
+     ============================================================ */
+  :root[data-palette="a"] {
+    --palette-name: "Plaka 272 — Solgun Limon";
+    --base: #ffefae;      /* Pale Lemon Yellow (plaka üyesi) */
+    --primary: #97acc8;   /* Salvia Blue */
+    --accent: #f37420;    /* Orange */
+  }
+  :root[data-palette="b"] {
+    --palette-name: "Plaka 151 — Kükürt Sarısı";
+    --base: #f5ecc2;      /* Sulpher Yellow (plaka üyesi) */
+    --primary: #064f6e;   /* Vandar Poel's Blue */
+    --accent: #f99d1b;    /* Yellow Orange */
+  }
+  :root[data-palette="c"] {
+    --palette-name: "Plaka 141 — Lacivert Kontrast";
+    --base: #ffffff;      /* Acme beyazı (plakada değil -- 3. üye Yellow Green'di, marka kimliğine uymadığı için düşürüldü) */
+    --primary: #12354e;   /* Dark Tyrian Blue */
+    --accent: #f37420;    /* Orange */
+  }
+  :root[data-palette="d"] {
+    --palette-name: "Plaka 114 — Antwerp Mavisi";
+    --base: #ffffff;
+    --primary: #007190;   /* Antwarp Blue */
+    --accent: #fcb315;    /* Orange Yellow */
+  }
+  :root[data-palette="e"] {
+    --palette-name: "Plaka 148 — Serulyen";
+    --base: #ffffff;
+    --primary: #0093a5;   /* Cerulian Blue */
+    --accent: #fcb315;    /* Orange Yellow */
+  }
+  :root[data-palette="f"] {
+    --palette-name: "Plaka 179 — Lyon Mavisi";
+    --base: #ffffff;
+    --primary: #1c4286;   /* Deep Lyons Blue */
+    --accent: #dd4027;    /* Red Orange */
+  }
+  :root[data-palette="g"] {
+    --palette-name: "Plaka 241 — Medici Mavisi";
+    --base: #ffefae;      /* Pale Lemon Yellow (plaka üyesi) */
+    --primary: #547076;   /* Dark Medici Blue */
+    --accent: #dd4027;    /* Red Orange */
+  }
+  :root[data-palette="h"] {
+    --palette-name: "Plaka 309 — Menekşe Mavisi";
+    --base: #ffffff;
+    --primary: #40456a;   /* Violet Blue */
+    --accent: #f68c50;    /* Apricot Orange */
+  }
+  :root[data-palette="i"] {
+    --palette-name: "Plaka 335 — Arduvaz Gri-Mavi";
+    --base: #ffffff;
+    --primary: #34454c;   /* Slate Color */
+    --accent: #f99d1b;    /* Yellow Orange */
+  }
+  :root[data-palette="j"] {
+    --palette-name: "Plaka 339 — Açık Camgöbeği";
+    --base: #ffffff;
+    --primary: #a5c8d1;   /* Light Glaucous Blue */
+    --accent: #d96629;    /* English Red */
+  }
+  :root[data-palette="k"] {
+    --palette-name: "Plaka 25 — Nil Mavisi Pastel";
+    --base: #ffffff;
+    --primary: #bce4e5;   /* Nile Blue */
+    --accent: #c55347;    /* Etruscan Red */
+  }
+  :root[data-palette="l"] {
+    --palette-name: "Plaka 163 — Antwerp & Kayısı";
+    --base: #ffffff;
+    --primary: #007190;   /* Antwarp Blue */
+    --accent: #ffdd00;    /* Apricot Yellow */
+  }
+  :root[data-palette="m"] {
+    --palette-name: "Plaka 186 — Kurumsal Mavi";
+    --base: #ffffff;
+    --primary: #006eb8;   /* Blue */
+    --accent: #d8a37b;    /* Ochraceous Salmon */
+  }
+  :root[data-palette="n"] {
+    --palette-name: "Plaka 286 — Tavus Mavisi";
+    --base: #ffffff;
+    --primary: #00939b;   /* Peacock Blue */
+    --accent: #fcb315;    /* Orange Yellow */
+  }
+  :root[data-palette="o"] {
+    --palette-name: "Plaka 312 — Helvetia Mavisi";
+    --base: #ffffff;
+    --primary: #005b8d;   /* Helvetia Blue */
+    --accent: #f99d1b;    /* Yellow Orange */
+  }
+
+  :root {
+    /* Sayfa zemini: --base'in hafif bir yıkaması (%60 görsel ağırlık, ama
+       göz yormasın diye düşük doygunluk) -- her paletin kendi Wada tonuna
+       gözle görülür biçimde bağlı kalır. */
+    --background: color-mix(in srgb, var(--base) 14%, white);
+    --card: color-mix(in srgb, var(--base) 4%, white);
+    --muted: color-mix(in srgb, var(--base) 24%, white);
+    --muted-strong: color-mix(in srgb, var(--base) 40%, white);
+    --border: color-mix(in srgb, var(--primary) 16%, var(--base));
+    --foreground: color-mix(in srgb, var(--primary) 78%, black);
+    --muted-foreground: color-mix(in srgb, var(--foreground) 46%, var(--base));
+    --primary-foreground: #ffffff;
+    --accent-foreground: #ffffff;
+    --accent-soft: color-mix(in srgb, var(--accent) 16%, white);
+    --accent-soft-foreground: color-mix(in srgb, var(--accent) 72%, black);
+    --ring: color-mix(in srgb, var(--primary) 55%, white);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; font-family: var(--font-sans);
+    background: var(--background); color: var(--foreground);
+    display: flex; flex-direction: column;
+    -webkit-font-smoothing: antialiased;
+    font-size: 15px;
+  }
+
+  header {
+    padding: 0.7rem 1.25rem; border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--card) 92%, var(--base));
+    display: flex; justify-content: space-between; align-items: center;
+    flex: none;
+  }
+  .brand { display: flex; align-items: center; gap: 0.6rem; }
+  .brand-mark {
+    width: 1.65rem; height: 1.65rem; border-radius: 8px; flex: none;
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary) 55%, var(--accent) 100%);
+    box-shadow: var(--shadow-sm);
+  }
+  .brand-text { display: flex; flex-direction: column; line-height: 1.15; }
+  header h1 { font-size: 0.95rem; margin: 0; font-weight: 700; letter-spacing: -0.01em; }
+  .brand-sub { font-size: 0.7rem; color: var(--muted-foreground); font-weight: 500; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    font-family: var(--font-sans); font-size: 0.82rem; font-weight: 600;
+    border-radius: var(--radius-sm); cursor: pointer;
+    transition: background-color .15s ease, border-color .15s ease, filter .15s ease, transform .1s ease;
+    border: 1px solid transparent;
+  }
+  .btn:active { transform: translateY(1px); }
+  .btn-outline {
+    background: var(--card); border-color: var(--border); color: var(--foreground);
+    padding: 0.45rem 0.8rem;
+  }
+  .btn-outline:hover { background: var(--muted); border-color: var(--muted-strong); }
+
+  main {
+    flex: 1; min-height: 0; display: flex; gap: 0.9rem;
+    padding: 0.9rem 1.25rem 1.1rem; max-width: 1400px; width: 100%;
+    margin: 0 auto;
+  }
+
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: var(--shadow-xs); display: flex; flex-direction: column; overflow: hidden;
+  }
+
+  #chat-col { flex: 2; min-width: 0; }
+  #log { flex: 1; overflow-y: auto; padding: 1.25rem; display: flex; flex-direction: column; gap: 0.7rem; }
+  .msg { max-width: 72%; padding: 0.65rem 0.95rem; border-radius: 1rem; line-height: 1.5; white-space: pre-wrap;
+    font-size: 0.92rem; }
+  .msg.user { align-self: flex-end; background: var(--primary); color: var(--primary-foreground);
+    border-bottom-right-radius: 0.3rem; box-shadow: var(--shadow-xs); }
+  .msg.assistant { align-self: flex-start; background: var(--muted); color: var(--foreground);
+    border-bottom-left-radius: 0.3rem;
+    /* Tablolu cevaplar 70%'e sığmıyor (karar: 2026-08-03, kullanıcı: "tablo
+       çirkin görünüyor") -- assistant kabarcığı daha geniş, taşma yine de
+       .md-table-wrap'in kendi overflow-x'iyle karşılanır (aşağıda). */
+    max-width: 92%; }
+  .msg.error { align-self: center; color: var(--error); background: var(--error-bg);
+    border: 1px solid color-mix(in srgb, var(--error) 25%, transparent); font-size: 0.85rem; border-radius: var(--radius-sm); }
+  /* Ön bilgilendirme: gerçek bir cevap DEĞİL (hafızaya girmez, modele gitmez)
+     -- solgun/italik görünüm bunu görsel olarak da ayırır. */
+  .msg.assistant.preamble { opacity: 0.7; font-style: italic; font-size: 0.87rem; background: transparent;
+    border: 1px dashed var(--border); color: var(--muted-foreground); }
+  /* Aşağıdaki .md-* sınıfları renderMarkdown()'ın ürettiği blok yapılar --
+     üstteki .msg'nin white-space:pre-wrap'i yalnız düz paragraflarda (.md-p)
+     istenir, liste/tablo kendi düzenini yönetir (karar: 2026-08-03). */
+  .md-p { white-space: pre-wrap; margin: 0 0 0.5rem; }
+  .md-p:last-child { margin-bottom: 0; }
+  .md-list { white-space: normal; margin: 0.2rem 0 0.6rem; padding-left: 1.2rem; }
+  .md-list li { margin: 0.15rem 0; }
+  .md-table-wrap { white-space: normal; overflow-x: auto; margin: 0.3rem 0 0.6rem; max-width: 100%;
+    border: 1px solid var(--border); border-radius: var(--radius-sm); }
+  .md-table-wrap:last-child { margin-bottom: 0; }
+  .md-table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+  .md-table th, .md-table td { padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--border);
+    text-align: left; white-space: nowrap; }
+  .md-table th { background: var(--card); font-weight: 600; }
+  .md-table tr:last-child td { border-bottom: none; }
+  .msg code { font-family: var(--font-mono); background: color-mix(in srgb, currentColor 12%, transparent);
+    padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.88em; }
+  .attachments { margin-top: 0.5rem; display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .attachment { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.83rem;
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: 0.25rem 0.5rem; text-decoration: none; color: inherit; background: var(--card);
+    transition: background-color .15s ease; }
+  .attachment-doc:hover, .attachment-image:hover { background: var(--muted); }
+  .attachment-image { padding: 0.25rem; }
+  .attachment-image img { max-width: 96px; max-height: 96px; border-radius: 4px; display: block; }
+  .evidence { margin-top: 0.5rem; }
+  .evidence summary { cursor: pointer; font-size: 0.78rem; color: var(--muted-foreground); font-weight: 500; }
+  .evidence-list { margin-top: 0.4rem; display: flex; flex-direction: column; gap: 0.4rem; }
+  .evidence-item { border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: 0.45rem 0.65rem; font-size: 0.8rem; background: var(--card); }
+  .evidence-item-head { display: flex; gap: 0.4rem; align-items: center; font-weight: 600;
+    color: var(--foreground); flex-wrap: wrap; }
+  /* shadcn "Badge" deseni: küçük punto, tam yuvarlak, ince halka. */
+  .evidence-kind { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em;
+    font-weight: 700; border-radius: var(--radius-full); padding: 0.15rem 0.55rem;
+    background: var(--muted); box-shadow: inset 0 0 0 1px var(--border); }
+  .evidence-source { font-weight: 400; color: var(--muted-foreground);
+     overflow-wrap: anywhere; font-size: 0.79rem; }
+  /* Attribute rozeti: bu satırın HANGİ özelliğin kanıtı olduğu (spec_value.key).
+     Kaynak/dosya bilgisinden görsel olarak ayrı dursun diye vurgulu --
+     paletin %10'luk turuncu vurgu rengi BİLEREK yalnız burada kullanılır
+     (60/30/10: nadir/önemli tek bir noktayı işaretlemek turuncunun işi). */
+  .evidence-attr { font-size: 0.68rem; font-weight: 700; padding: 0.15rem 0.55rem;
+     border-radius: var(--radius-full); white-space: nowrap;
+     background: var(--accent-soft);
+     color: var(--accent-soft-foreground); }
+  .evidence-snippet { margin-top: 0.25rem; white-space: pre-wrap; color: var(--foreground); }
+  /* SQL kaynak rozeti paletin %30'luk mavi ailesine bağlanır -- turuncu
+     yalnız evidence-attr'a özel kalsın diye anlam ayrımı bilerek korunur. */
+  .evidence-kind-sql { background: color-mix(in srgb, var(--primary) 16%, white);
+    color: color-mix(in srgb, var(--primary) 80%, black); box-shadow: none; }
+  .evidence-row-table { margin-top: 0.2rem; width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+  .evidence-row-table td { padding: 0.1rem 0.4rem 0.1rem 0; vertical-align: top; }
+  .evidence-row-table td:first-child { color: var(--muted-foreground); white-space: nowrap; }
+  /* [SQL] satırının ARKASINDAKİ gerçek chunk'lar (KARAR-069) -- kolon/değer
+     tablosundan görsel olarak ayrılsın diye sola çekilmiş bir şerit. */
+  .evidence-chunks { margin-top: 0.45rem; border-left: 2px solid color-mix(in srgb, var(--primary) 35%, transparent);
+    padding-left: 0.55rem; display: flex; flex-direction: column; gap: 0.45rem; }
+  .evidence-chunks-title { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--muted-foreground); font-weight: 600; }
+  .evidence-chunk-head { font-size: 0.75rem; color: var(--muted-foreground);
+    overflow-wrap: anywhere; }
+  /* Tam dosya yolu: uzun ve teknik -- monospace + küçük punto, satır sonunda
+     kırılabilir (panel yatay taşmasın). */
+  .evidence-path { font-family: var(--font-mono); font-size: 0.68rem;
+    color: var(--muted-foreground); overflow-wrap: anywhere; margin-top: 0.1rem; }
+  .evidence-chunk-text { margin-top: 0.2rem; white-space: pre-wrap; font-size: 0.78rem;
+    color: var(--foreground);
+    background: var(--muted); border-radius: 6px; padding: 0.35rem 0.5rem; }
+  .evidence-chunks-more summary { cursor: pointer; font-size: 0.7rem;
+    color: var(--muted-foreground); }
+  .evidence-chunks-more .evidence-chunks { border-left: none; padding-left: 0; margin-top: 0.35rem; }
+
+  form { display: flex; gap: 0.55rem; padding: 0.85rem 1.1rem; border-top: 1px solid var(--border);
+    background: color-mix(in srgb, var(--card) 92%, var(--base)); flex: none; }
+  #q { flex: 1; padding: 0.65rem 0.9rem; border-radius: var(--radius-sm); border: 1px solid var(--border);
+    background: var(--card); color: var(--foreground); font-size: 0.92rem; font-family: var(--font-sans);
+    transition: border-color .15s ease, box-shadow .15s ease; }
+  /* shadcn/Radix'in ayırt edici çift-halka odak deseni: iç halka kart
+     rengiyle boşluk bırakır, dış halka --ring'i taşır. */
+  #q:focus {
+    outline: none; border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--ring);
+  }
+  button[type=submit] {
+    display: inline-flex; align-items: center; gap: 0.45rem;
+    padding: 0.65rem 1.15rem; border-radius: var(--radius-sm); border: none;
+    background: var(--primary); color: var(--primary-foreground); font-size: 0.9rem; font-weight: 600;
+    font-family: var(--font-sans); cursor: pointer; transition: filter .15s ease, transform .1s ease;
+    box-shadow: var(--shadow-xs);
+  }
+  button[type=submit]:hover:not(:disabled) { filter: brightness(0.92); }
+  button[type=submit]:active:not(:disabled) { transform: translateY(1px); }
+  button[type=submit]:disabled { opacity: 0.5; cursor: default; }
+  button[type=submit] svg { width: 1rem; height: 1rem; flex: none; }
+
+  #trace-col { flex: 1; min-width: 300px; max-width: 460px; }
+  #trace-col h2 { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--muted-foreground); margin: 0; padding: 0.9rem 1.1rem 0.6rem; font-weight: 700;
+    border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--card) 92%, var(--base)); }
+  #trace { flex: 1; overflow-y: auto; padding: 0.75rem 0.85rem; display: flex; flex-direction: column; gap: 0.5rem; }
+  .trace-item { border: 1px solid var(--border); border-left: 2px solid var(--primary); border-radius: var(--radius-sm);
+    padding: 0.5rem 0.65rem; font-size: 0.79rem; background: var(--background); box-shadow: none; }
+  .trace-step { font-weight: 700; margin-bottom: 0.2rem; font-size: 0.78rem; }
+  .trace-body { white-space: pre-wrap; word-break: break-word; color: var(--foreground); }
+  .trace-chunk { padding: 0.15rem 0; border-top: 1px dashed var(--border); }
+  .trace-chunk:first-child { border-top: none; }
+  .trace-empty { color: var(--muted-foreground); font-style: italic; }
+  .trace-error { border-left-color: var(--error); background: var(--error-bg); }
+  .trace-error .trace-step { color: var(--error); }
+  .trace-timing { padding: 0.35rem 0.65rem; border-left-color: var(--muted-strong); }
+  .trace-timing .trace-step { font-weight: 500; color: var(--muted-foreground); }
+  .trace-timing .trace-body { font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+
+  /* Palet anahtarı: Wada Sanzo aday kombinasyonları arasında geçiş --
+     kullanıcı beğendiğine karar verene kadar dener, seçim localStorage'da
+     kalır. Sağ altta sabit, trace panelinin üzerinde yüzer. */
+  .palette-fab {
+    position: fixed; right: 1.35rem; bottom: 1.35rem; z-index: 50;
+    width: 3.1rem; height: 3.1rem; border-radius: var(--radius-full);
+    border: 1px solid var(--border); background: var(--card);
+    box-shadow: var(--shadow-md); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: transform .15s ease, box-shadow .15s ease;
+  }
+  .palette-fab:hover { transform: translateY(-2px); }
+  .palette-fab:focus-visible {
+    outline: none; box-shadow: var(--shadow-md), 0 0 0 2px var(--card), 0 0 0 4px var(--ring);
+  }
+  .palette-fab-swatch {
+    width: 1.6rem; height: 1.6rem; border-radius: var(--radius-full);
+    background: conic-gradient(var(--primary) 0deg 190deg, var(--accent) 190deg 360deg);
+    box-shadow: inset 0 0 0 2px var(--card);
+  }
+  .palette-toast {
+    position: fixed; right: 1.35rem; bottom: 5rem; z-index: 50;
+    background: var(--foreground); color: var(--background);
+    font-size: 0.74rem; font-weight: 600; padding: 0.4rem 0.8rem;
+    border-radius: var(--radius-full); box-shadow: var(--shadow-sm);
+    opacity: 0; transform: translateY(4px); pointer-events: none;
+    transition: opacity .18s ease, transform .18s ease;
+    white-space: nowrap;
+  }
+  .palette-toast.show { opacity: 1; transform: translateY(0); }
+
+  @media (max-width: 860px) {
+    main { flex-direction: column; padding: 0.75rem; }
+    #trace-col { max-width: none; }
+  }
+
+  /* ============================================================
+     Sekme anahtarı: "Geliştirici" (mevcut tam görünüm -- trace/evidence
+     panelli) vs "Widget Önizleme" (gerçek bir sitede sağ alttan beliren
+     bir destek widget'ı gibi görünsün diye kurgulanmış sahte bir site
+     zemini + köşede yüzen sohbet paneli). Aynı #log/#trace/#f/#q/#reset
+     elemanları PAYLAŞILIR (state/JS ikiye bölünmedi) -- yalnız body[data-view]
+     özniteliğine göre CSS ile yeniden yerleşiyor/gizleniyor. ============ */
+  .tab-bar {
+    position: fixed; top: 0.85rem; left: 50%; transform: translateX(-50%); z-index: 60;
+    display: flex; gap: 0.2rem; padding: 0.25rem; border-radius: var(--radius-full);
+    background: color-mix(in srgb, var(--card) 90%, transparent); backdrop-filter: blur(8px);
+    border: 1px solid var(--border); box-shadow: var(--shadow-sm);
+  }
+  .tab-btn {
+    border: none; background: transparent; padding: 0.4rem 0.9rem; border-radius: var(--radius-full);
+    font-size: 0.78rem; font-weight: 600; color: var(--muted-foreground); cursor: pointer;
+    font-family: var(--font-sans); transition: background-color .15s ease, color .15s ease;
+  }
+  .tab-btn[aria-pressed="true"] { background: var(--primary); color: var(--primary-foreground); box-shadow: var(--shadow-xs); }
+  .tab-btn:hover[aria-pressed="false"] { background: var(--muted); color: var(--foreground); }
+
+  /* Sahte site zemini -- yalnız widget önizlemesinde görünür, bilinçli
+     olarak paletin marka renklerine BAĞLI DEĞİL (herhangi bir üçüncü taraf
+     sitesi izlenimi versin diye nötr gri tonlar). */
+  .mock-site { display: none; }
+  body[data-view="widget"] .mock-site {
+    display: block; position: fixed; inset: 0; z-index: 0; overflow: hidden;
+    background: #f4f5f7; font-family: var(--font-sans);
+  }
+  .mock-nav {
+    height: 3.5rem; background: #ffffff; border-bottom: 1px solid #e5e7eb;
+    display: flex; align-items: center; justify-content: space-between; padding: 0 2rem;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  }
+  .mock-logo { font-weight: 700; color: #1f2937; font-size: 0.95rem; }
+  .mock-nav-links { display: flex; gap: 1.5rem; }
+  .mock-nav-links span { width: 2.75rem; height: 0.55rem; border-radius: var(--radius-full); background: #e5e7eb; display: block; }
+  .mock-hero {
+    max-width: 640px; margin: 0 auto; padding: 4.5rem 2rem 2.5rem; display: flex;
+    flex-direction: column; align-items: center; text-align: center; gap: 0.85rem;
+  }
+  .mock-hero-line { height: 1rem; border-radius: 0.3rem; background: #e2e4e8; width: 68%; }
+  .mock-hero-line--lg { height: 1.9rem; width: 58%; background: #d7dae0; }
+  .mock-hero-line--sm { width: 38%; }
+  .mock-cards { display: flex; gap: 1.5rem; flex-wrap: wrap; justify-content: center; max-width: 960px; margin: 0 auto; padding: 1rem 2rem 3rem; }
+  .mock-card { width: 260px; height: 150px; border-radius: 0.85rem; background: #ffffff; border: 1px solid #e5e7eb; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05); }
+
+  body[data-view="widget"] header { display: none; }
+  /* Palet butonu widget önizlemesinde de görünür kalır (kullanıcı: "orada
+     da rahatça gezebilmeliyim") -- ama sağ alt widget paneli/launcher
+     balonuyla üst üste binmesin diye SOLA taşınır. */
+  body[data-view="widget"] .palette-fab { right: auto; left: 1.35rem; }
+  body[data-view="widget"] .palette-toast { right: auto; left: 1.35rem; }
+  body[data-view="widget"] main {
+    position: relative; z-index: 1; background: transparent; padding: 0; max-width: none; margin: 0;
+  }
+  body[data-view="widget"] #trace-col { display: none; }
+
+  /* Widget paneli: köşeden beliren gerçek bir sohbet widget'ı gibi
+     konumlanır -- sabit boyut, güçlü gölge, açık/kapalı arası
+     ölçek+kayma geçişi (yaylı easing, "belirme" hissi için). */
+  body[data-view="widget"] #chat-col {
+    position: fixed; right: 1.5rem; bottom: 1.5rem; z-index: 40;
+    width: min(380px, calc(100vw - 2rem)); height: min(600px, calc(100vh - 2rem));
+    border-radius: 1.15rem; box-shadow: var(--shadow-md);
+    transform-origin: bottom right;
+    transition: transform .24s cubic-bezier(.34, 1.56, .64, 1), opacity .18s ease;
+  }
+  body[data-view="widget"][data-widget-open="false"] #chat-col {
+    transform: scale(0.85) translateY(16px); opacity: 0; pointer-events: none;
+  }
+
+  #widget-header { display: none; }
+  body[data-view="widget"] #widget-header {
+    display: flex; align-items: center; gap: 0.6rem; padding: 0.75rem 0.9rem; flex: none;
+    background: linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 65%, var(--accent)));
+    color: var(--primary-foreground);
+  }
+  #widget-header .brand-mark { background: rgba(255, 255, 255, 0.22); box-shadow: none; }
+  /* Başlık metni BİLEREK yok (kullanıcı: "chatbot açınca zaten ne olduğunu
+     biliyor, gereksiz başlık atma") -- marka işareti + iki ikon buton
+     yeterli, sağa margin-left:auto ile itiliyor. */
+  #widget-reset { margin-left: auto; }
+  .icon-btn {
+    width: 1.9rem; height: 1.9rem; border-radius: var(--radius-full); border: none; flex: none;
+    background: rgba(255, 255, 255, 0.16); color: inherit; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; transition: background-color .15s ease;
+  }
+  .icon-btn:hover { background: rgba(255, 255, 255, 0.3); }
+  .icon-btn svg { width: 1rem; height: 1rem; }
+
+  /* Küçültülünce geri açan yuvarlak "launcher" balonu -- gerçek site
+     widget'larının imzası. */
+  #widget-launcher { display: none; }
+  body[data-view="widget"] #widget-launcher {
+    display: flex; position: fixed; right: 1.5rem; bottom: 1.5rem; z-index: 39;
+    width: 3.6rem; height: 3.6rem; border-radius: var(--radius-full); border: none;
+    background: var(--primary); color: var(--primary-foreground); cursor: pointer;
+    align-items: center; justify-content: center; box-shadow: var(--shadow-md);
+    transition: transform .22s cubic-bezier(.34, 1.56, .64, 1), opacity .18s ease;
+  }
+  body[data-view="widget"][data-widget-open="true"] #widget-launcher {
+    transform: scale(0.5); opacity: 0; pointer-events: none;
+  }
+  #widget-launcher svg { width: 1.5rem; height: 1.5rem; }
+</style>
+</head>
+<body data-view="dev" data-widget-open="true">
+<div class="tab-bar">
+  <button class="tab-btn" id="tab-dev" type="button" aria-pressed="true">Geliştirici</button>
+  <button class="tab-btn" id="tab-widget" type="button" aria-pressed="false">Widget Önizleme</button>
+</div>
+<div class="mock-site" aria-hidden="true">
+  <div class="mock-nav">
+    <span class="mock-logo">Örnek Kurumsal Site</span>
+    <div class="mock-nav-links"><span></span><span></span><span></span></div>
+  </div>
+  <div class="mock-hero">
+    <div class="mock-hero-line mock-hero-line--lg"></div>
+    <div class="mock-hero-line"></div>
+    <div class="mock-hero-line mock-hero-line--sm"></div>
+  </div>
+  <div class="mock-cards">
+    <div class="mock-card"></div>
+    <div class="mock-card"></div>
+    <div class="mock-card"></div>
+  </div>
+</div>
+<header>
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <div class="brand-text">
+      <h1>chatbot</h1>
+      <span class="brand-sub">Acme ürün asistanı</span>
+    </div>
+  </div>
+  <button id="reset" class="btn btn-outline" type="button">Sohbeti sıfırla</button>
+</header>
+<main>
+  <div id="chat-col" class="card">
+    <div id="widget-header">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <button id="widget-reset" class="icon-btn" type="button" title="Sohbeti sıfırla" aria-label="Sohbeti sıfırla">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="1 4 1 10 7 10"></polyline>
+          <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+        </svg>
+      </button>
+      <button id="widget-minimize" class="icon-btn" type="button" title="Küçült" aria-label="Küçült">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+    <div id="log"></div>
+    <form id="f">
+      <input id="q" type="text" placeholder="Bir soru yaz..." autocomplete="off" autofocus>
+      <button type="submit">
+        Gönder
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="22" y1="2" x2="11" y2="13"></line>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+        </svg>
+      </button>
+    </form>
+  </div>
+  <div id="trace-col" class="card">
+    <h2>Arka plan</h2>
+    <div id="trace"></div>
+  </div>
+</main>
+<button id="widget-launcher" type="button" aria-label="Sohbeti aç" title="Sohbeti aç">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+  </svg>
+</button>
+<button id="palette-toggle" class="palette-fab" type="button"
+    title="Renk paletini değiştir (Wada Sanzo adayları arasında geçiş)"
+    aria-label="Renk paletini değiştir">
+  <span class="palette-fab-swatch" aria-hidden="true"></span>
+</button>
+<div id="palette-toast" class="palette-toast" role="status"></div>
+<script>
+// Wada Sanzo aday paletleri: her biri stil bloğunda :root[data-palette=...]
+// olarak tanımlı (--base/--primary/--accent -- kitabın GERÇEK plaka
+// üçlülerinden alınmış üç gerçek hex, bkz. <style> başındaki not), gerisi
+// CSS'te color-mix() ile türüyor. Bu buton yalnız <html>'in data-palette
+// özniteliğini değiştirir; seçim localStorage'da kalır ki sayfa yenilense
+// de karar unutulmasın.
+const PALETTES = [
+  {id: 'a', label: 'Plaka 272 — Solgun Limon'},
+  {id: 'b', label: 'Plaka 151 — Kükürt Sarısı'},
+  {id: 'c', label: 'Plaka 141 — Lacivert Kontrast'},
+  {id: 'd', label: 'Plaka 114 — Antwerp Mavisi'},
+  {id: 'e', label: 'Plaka 148 — Serulyen'},
+  {id: 'f', label: 'Plaka 179 — Lyon Mavisi'},
+  {id: 'g', label: 'Plaka 241 — Medici Mavisi'},
+  {id: 'h', label: 'Plaka 309 — Menekşe Mavisi'},
+  {id: 'i', label: 'Plaka 335 — Arduvaz Gri-Mavi'},
+  {id: 'j', label: 'Plaka 339 — Açık Camgöbeği'},
+  {id: 'k', label: 'Plaka 25 — Nil Mavisi Pastel'},
+  {id: 'l', label: 'Plaka 163 — Antwerp & Kayısı'},
+  {id: 'm', label: 'Plaka 186 — Kurumsal Mavi'},
+  {id: 'n', label: 'Plaka 286 — Tavus Mavisi'},
+  {id: 'o', label: 'Plaka 312 — Helvetia Mavisi'},
+];
+const paletteRoot = document.documentElement;
+const paletteFab = document.getElementById('palette-toggle');
+const paletteToast = document.getElementById('palette-toast');
+let paletteIndex = 0;
+try {
+  const saved = localStorage.getItem('chat-palette');
+  const idx = PALETTES.findIndex((p) => p.id === saved);
+  if (idx >= 0) paletteIndex = idx;
+} catch (e) { /* localStorage kapalı olabilir (gizli sekme) -- varsayılana düş */ }
+
+let paletteToastTimer = null;
+function applyPalette(showToast) {
+  const p = PALETTES[paletteIndex];
+  paletteRoot.setAttribute('data-palette', p.id);
+  try { localStorage.setItem('chat-palette', p.id); } catch (e) { /* yoksay */ }
+  if (showToast) {
+    paletteToast.textContent = p.label;
+    paletteToast.classList.add('show');
+    clearTimeout(paletteToastTimer);
+    paletteToastTimer = setTimeout(() => paletteToast.classList.remove('show'), 1600);
+  }
+}
+applyPalette(false);
+paletteFab.addEventListener('click', () => {
+  paletteIndex = (paletteIndex + 1) % PALETTES.length;
+  applyPalette(true);
+});
+
+// Sekme anahtarı: "Geliştirici" (mevcut tam görünüm) <-> "Widget Önizleme"
+// (gerçek bir sitede köşeden beliren destek widget'ı simülasyonu). Aynı
+// #log/#trace/#f/#q PAYLAŞILIR -- yalnızca body[data-view] CSS'i değiştirir,
+// konuşma durumu iki görünüm arasında bölünmez/kopyalanmaz.
+const body = document.body;
+const tabDev = document.getElementById('tab-dev');
+const tabWidget = document.getElementById('tab-widget');
+function setView(view) {
+  body.setAttribute('data-view', view);
+  tabDev.setAttribute('aria-pressed', String(view === 'dev'));
+  tabWidget.setAttribute('aria-pressed', String(view === 'widget'));
+  try { localStorage.setItem('chat-view', view); } catch (e) { /* yoksay */ }
+}
+let initialView = 'dev';
+try {
+  const savedView = localStorage.getItem('chat-view');
+  if (savedView === 'dev' || savedView === 'widget') initialView = savedView;
+} catch (e) { /* yoksay */ }
+setView(initialView);
+tabDev.addEventListener('click', () => setView('dev'));
+tabWidget.addEventListener('click', () => setView('widget'));
+
+// Widget önizlemesinde panel açık/kapalı durumu -- "küçült" ikonu paneli
+// launcher balonuna indirger, balona tıklamak tekrar açar (gerçek destek
+// widget'larının standart davranışı).
+const widgetLauncher = document.getElementById('widget-launcher');
+const widgetMinimize = document.getElementById('widget-minimize');
+function setWidgetOpen(open) {
+  body.setAttribute('data-widget-open', open ? 'true' : 'false');
+}
+widgetLauncher.addEventListener('click', () => setWidgetOpen(true));
+widgetMinimize.addEventListener('click', () => setWidgetOpen(false));
+
+const log = document.getElementById('log');
+const trace = document.getElementById('trace');
+const form = document.getElementById('f');
+const input = document.getElementById('q');
+const resetBtn = document.getElementById('reset');
+const widgetResetBtn = document.getElementById('widget-reset');
+
+const STEP_LABELS = {
+  reconcile: 'Durum (geçiş)',
+  resolved_query: 'Çözümlenmiş sorgu',
+  reconcile_raw: 'Reconciler ham çıktı (ayrıştırılamadı)',
+  goal: 'Süregelen amaç',
+  intent: 'Intent',
+  intent_raw: 'Intent ham çıktı (eşleşmedi)',
+  sql_rewrite: 'SQL rewrite',
+  top_n_query: 'top_n sorgusu',
+  top_n_results: 'top_n sonuçları',
+  linking_done: 'SQL: schema linking',
+  generation_done: 'SQL: üretim',
+  sql_generated: 'Üretilen SQL',
+  sql_rows: 'SQL sonuçları',
+  sql_error: 'SQL HATASI',
+  strategy: 'Strateji',
+  answering: 'Cevap üretimi',
+  no_retrieval: 'Retrieval yok',
+  comparison_split: 'Karşılaştırma ayrımı',
+  timing: 'Süre',
+  preamble: 'Ön bilgilendirme',
+};
+
+// step adı bu sette ise trace kartı hata rengiyle vurgulanır (2026-07-23 --
+// kullanıcı: "SQL patlarsa ne olduğunu göremiyorum", hata artık ayrı görünür).
+const ERROR_STEPS = new Set(['sql_error']);
+
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Modelin ürettiği hafif markdown'ı (**kalın**, `kod`, - madde, GFM tablo)
+// HTML'e çevirir -- kullanıcı: cevaplar "**" ile geliyor ama frontend'te ham
+// yıldız olarak görünüyordu (karar: 2026-07-27); sonra karşılaştırma
+// tabloları da ham "| a | b |" satırları olarak çirkin görünüyordu (karar:
+// 2026-08-03) -- bu yüzden satır-bazlı BLOK ayrıştırma eklendi: tablo/liste
+// blokları gerçek <table>/<ul>'ye, aradaki düz metin <div class="md-p">'ye
+// çevrilir. Hâlâ tam bir markdown parser DEĞİL, üçüncü parti bir kütüphane
+// (marked.js vb.) eklemeden bu chat'in ürettiği kalıpları (answering_model.py
+// _BASE_PERSONA'nın FORMATTING kuralı) kapsayan minimal bir dönüşüm.
+function inlineMd(raw) {
+  let html = escapeHtml(raw);
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+  return html;
+}
+
+function isTableSeparatorLine(line) {
+  return /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(line);
+}
+
+function splitTableRow(line) {
+  let t = line.trim();
+  if (t.startsWith('|')) t = t.slice(1);
+  if (t.endsWith('|')) t = t.slice(0, -1);
+  return t.split('|').map((c) => c.trim());
+}
+
+function renderMarkdown(text) {
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  const blocks = [];
+  let para = [];
+  const flushPara = () => {
+    if (para.length) {
+      blocks.push('<div class="md-p">' + para.map(inlineMd).join('\n') + '</div>');
+      para = [];
+    }
+  };
+
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    // GFM tablo: bu satırda '|' var VE bir sonraki satır ayırıcı (---|---).
+    if (trimmed.includes('|') && i + 1 < lines.length && isTableSeparatorLine(lines[i + 1])) {
+      flushPara();
+      const header = splitTableRow(trimmed);
+      i += 2;
+      const rows = [];
+      while (i < lines.length && lines[i].trim().includes('|')) {
+        rows.push(splitTableRow(lines[i]));
+        i++;
+      }
+      let t = '<div class="md-table-wrap"><table class="md-table"><thead><tr>';
+      t += header.map((c) => '<th>' + inlineMd(c) + '</th>').join('');
+      t += '</tr></thead><tbody>';
+      for (const row of rows) {
+        t += '<tr>' + row.map((c) => '<td>' + inlineMd(c) + '</td>').join('') + '</tr>';
+      }
+      t += '</tbody></table></div>';
+      blocks.push(t);
+      continue;
+    }
+
+    // Madde listesi: ardışık "- " ya da "* " satırları.
+    if (/^[-*]\s+/.test(trimmed)) {
+      flushPara();
+      const items = [];
+      while (i < lines.length && /^[-*]\s+/.test(lines[i].trim())) {
+        items.push(lines[i].trim().replace(/^[-*]\s+/, ''));
+        i++;
+      }
+      blocks.push('<ul class="md-list">' + items.map((it) => '<li>' + inlineMd(it) + '</li>').join('') + '</ul>');
+      continue;
+    }
+
+    if (trimmed === '') {
+      flushPara();
+      i++;
+      continue;
+    }
+
+    para.push(line);
+    i++;
+  }
+  flushPara();
+  return blocks.join('');
+}
+
+function addMessage(role, text) {
+  const el = document.createElement('div');
+  el.className = 'msg ' + role;
+  if (role === 'assistant') {
+    el.innerHTML = renderMarkdown(text);
+  } else {
+    el.textContent = text;
+  }
+  log.appendChild(el);
+  log.scrollTop = log.scrollHeight;
+  return el;
+}
+
+// `/api/chat/stream`in `done` event'indeki `documents`/`images` (ROADMAP
+// 11a/10d, bkz. answering_model.py::extract_visible_documents/
+// extract_visible_images) daha önce hiç kullanılmıyordu -- backend hazırdı,
+// frontend bu kanalı okumuyordu (karar: 2026-07-27). `doc_id`/`image_id`
+// gerçek indirmeye/servise `GET /api/documents/<doc_id>`/`GET /api/images/
+// <image_id>` üzerinden gider, ham dosya yolu hiç frontend'e gelmiyor zaten.
+function addAttachments(container, images, documents) {
+  const hasDocs = documents && documents.length;
+  const hasImages = images && images.length;
+  if (!hasDocs && !hasImages) return;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'attachments';
+
+  for (const doc of documents || []) {
+    const a = document.createElement('a');
+    a.className = 'attachment attachment-doc';
+    a.href = '/api/documents/' + encodeURIComponent(doc.doc_id);
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.textContent = '📄 ' + (doc.file_name || doc.doc_id);
+    wrap.appendChild(a);
+  }
+
+  for (const img of images || []) {
+    if (!img.image_id) continue;
+    const a = document.createElement('a');
+    a.className = 'attachment attachment-image';
+    a.href = '/api/images/' + encodeURIComponent(img.image_id);
+    a.target = '_blank';
+    a.rel = 'noopener';
+    const thumb = document.createElement('img');
+    thumb.src = a.href;
+    thumb.alt = 'görsel';
+    thumb.loading = 'lazy';
+    a.appendChild(thumb);
+    wrap.appendChild(a);
+  }
+
+  container.appendChild(wrap);
+}
+
+// `/api/chat`+`/api/chat/stream`in `chunks` alanı (bkz. answering_model.py::
+// extract_evidence_chunks) -- cevabın DAYANDIĞI kanıt chunk'larını, sağ
+// paneldeki uçucu trace'in aksine cevap balonunun ALTINDA kalıcı bir
+// <details> olarak gösterir. Varsayılan kapalı (`<details>` açık değil) --
+// çoğu cevapta gerekmez, isteyen genişletir.
+// Tek bir kanıt chunk'ının kartı: başlık satırı (dosya adı · sayfa · bölüm),
+// tam dosya yolu, sonra metnin kendisi.
+function renderEvidenceChunk(ec) {
+  const box = document.createElement('div');
+
+  const bits = [];
+  if (ec.file_name) bits.push('📄 ' + ec.file_name);
+  if (ec.page) bits.push('s.' + ec.page);
+  if (ec.section) bits.push(ec.section);
+  if (bits.length) {
+    const head = document.createElement('div');
+    head.className = 'evidence-chunk-head';
+    head.textContent = bits.join(' · ');
+    box.appendChild(head);
+  }
+
+  // Tam yol (document.file_path). KARAR-069 ile bilinçli olarak gösteriliyor
+  // -- kullanıcı kanıtın diskte nerede durduğunu görmek istiyor. Bu gevşetme
+  // YALNIZ bu panele aittir: asıl konuşan modele giden kanallar
+  // (`_render_context`/`_source_suffix`) ve `doc_download` flow'u yolu HÂLÂ
+  // hiç görmez.
+  if (ec.file_path) {
+    const path = document.createElement('div');
+    path.className = 'evidence-path';
+    path.textContent = ec.file_path;
+    box.appendChild(path);
+  }
+
+  const text = document.createElement('div');
+  text.className = 'evidence-chunk-text';
+  // Metin yalnız chunk korpusunda o node_id bulunamadığında boş kalır
+  // (ör. korpus yeniden üretilmiş, specs.db eski) -- sessizce boş bırakmak
+  // yerine nedeni yazılır, yoksa "panel bozuk" gibi görünür.
+  text.textContent = ec.text || '(chunk metni korpusta bulunamadı: ' + (ec.chunk_id || '?') + ')';
+  box.appendChild(text);
+  return box;
+}
+
+// Bir [SQL] satırının kanıt chunk'ları. İLKİ doğrudan açık gösterilir (asıl
+// kaynak), kalanı "N kaynak daha" altında katlanır -- `spec_value.evidence`
+// çoklu doğrulayıcı kaynak taşıyabiliyor (conflicting satırlarda birbiriyle
+// çelişen belgeler dahil) ve hepsi birden basılırsa panel okunmaz oluyor.
+function addSqlEvidenceChunks(item, evidenceChunks) {
+  if (!evidenceChunks || !evidenceChunks.length) return;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'evidence-chunks';
+  const title = document.createElement('div');
+  title.className = 'evidence-chunks-title';
+  title.textContent = `Kanıt chunk'ı (${evidenceChunks.length})`;
+  wrap.appendChild(title);
+  wrap.appendChild(renderEvidenceChunk(evidenceChunks[0]));
+
+  if (evidenceChunks.length > 1) {
+    const more = document.createElement('details');
+    more.className = 'evidence-chunks-more';
+    const summary = document.createElement('summary');
+    summary.textContent = `${evidenceChunks.length - 1} kaynak daha`;
+    more.appendChild(summary);
+    const rest = document.createElement('div');
+    rest.className = 'evidence-chunks';
+    for (const ec of evidenceChunks.slice(1)) rest.appendChild(renderEvidenceChunk(ec));
+    more.appendChild(rest);
+    wrap.appendChild(more);
+  }
+
+  item.appendChild(wrap);
+}
+
+function addEvidence(container, chunks) {
+  if (!chunks || !chunks.length) return;
+
+  const details = document.createElement('details');
+  details.className = 'evidence';
+  const summary = document.createElement('summary');
+  summary.textContent = `Kanıt (${chunks.length})`;
+  details.appendChild(summary);
+
+  const list = document.createElement('div');
+  list.className = 'evidence-list';
+  for (const c of chunks) {
+    const item = document.createElement('div');
+    item.className = 'evidence-item';
+
+    const head = document.createElement('div');
+    head.className = 'evidence-item-head';
+    const kind = document.createElement('span');
+    kind.className = 'evidence-kind' + (c.source_kind === 'SQL' ? ' evidence-kind-sql' : '');
+    kind.textContent = c.source_kind || '?';
+    head.appendChild(kind);
+
+    // Attribute rozeti (karar: 2026-08-07, kullanıcı: "hangi attribute'un
+    // evidence'ı olduğu net yazmalı"). `spec_value.key` bir ürünün TEK bir
+    // özelliğidir, yani bu satırın neyin kanıtı olduğunu tam söyler --
+    // kaynak bilgisinin arasına karışmasın diye AYRI, vurgulu bir rozet.
+    // [DOC] chunk'larında böyle bir alan yok, orada rozet hiç basılmaz.
+    if (c.attribute) {
+      const attr = document.createElement('span');
+      attr.className = 'evidence-attr';
+      attr.textContent = c.product_code ? c.product_code + ' · ' + c.attribute : c.attribute;
+      head.appendChild(attr);
+    }
+
+    const sourceBits = [];
+    // Dosya adı ÖNCE gelir (karar: 2026-08-07, kullanıcı: "o chunkın hangi
+    // dosyadan geldiği de yazmalı") -- "hangi belgeden geldi" sorusunun
+    // cevabı, teknik kimliklerden (doc_id/tablo) önce okunmalı.
+    if (c.file_name) sourceBits.push('📄 ' + c.file_name);
+    if (c.table) sourceBits.push('tablo=' + c.table);
+    // `doc_id` yalnızca dosya adı YOKSA gösterilir -- ikisi aynı belgeyi
+    // işaret eder, dosya adı insan-okur olanıdır (uuid gürültü yapmasın).
+    if (c.doc_id && !c.file_name) sourceBits.push('doc=' + c.doc_id);
+    if (c.section) sourceBits.push(c.section);
+    if (c.page) sourceBits.push('s.' + c.page);
+    const source = document.createElement('span');
+    source.className = 'evidence-source';
+    source.textContent = sourceBits.length ? sourceBits.join(' · ') : (c.id || '');
+    head.appendChild(source);
+    item.appendChild(head);
+
+    if (c.source_kind === 'SQL' && c.snippet && c.snippet.includes('=')) {
+      // SQL satırı "kolon=değer | kolon=değer" olarak geliyor (retrieval
+      // db_query.mapping.render_row_text) -- ham metin yerine okunabilir
+      // bir kolon/değer tablosu render eder, sunucu tarafında bir şey
+      // değişmez (yalnızca gösterim).
+      const table = document.createElement('table');
+      table.className = 'evidence-row-table';
+      for (const part of c.snippet.replace(/…$/, '').split(' | ')) {
+        const eq = part.indexOf('=');
+        if (eq < 0) continue;
+        const tr = document.createElement('tr');
+        const tdKey = document.createElement('td');
+        tdKey.textContent = part.slice(0, eq);
+        const tdVal = document.createElement('td');
+        tdVal.textContent = part.slice(eq + 1);
+        tr.appendChild(tdKey);
+        tr.appendChild(tdVal);
+        table.appendChild(tr);
+      }
+      item.appendChild(table);
+    } else {
+      const snippet = document.createElement('div');
+      snippet.className = 'evidence-snippet';
+      snippet.textContent = c.snippet || '';
+      item.appendChild(snippet);
+    }
+
+    // [SQL] satırının ARKASINDAKİ gerçek kanıt chunk'ları (karar: 2026-08-07,
+    // PROTOCOL KARAR-069). Kolon/değer tablosu "değer ne" sorusuna cevap
+    // verir; burası "bu değer nereden çıktı" sorusuna. Sunucu tarafında
+    // `sql_evidence.attach_sql_evidence` doldurur; alan yoksa (özellik kapalı
+    // ya da çözülemedi) hiçbir şey basılmaz -- panel eski hâline düşer.
+    addSqlEvidenceChunks(item, c.evidence_chunks);
+
+    list.appendChild(item);
+  }
+  details.appendChild(list);
+  container.appendChild(details);
+}
+
+function addTraceStep(step, data) {
+  const el = document.createElement('div');
+  el.className = 'trace-item' + (ERROR_STEPS.has(step) ? ' trace-error' : '');
+
+  // `timing` tek satırlık kompakt bir kart -- "reconcile: 1.23s" gibi, genel
+  // dict-dump'tan (key: value, her satır ayrı) daha okunur, çünkü bir istek
+  // başına 4-5 kez tekrar ediyor (2026-07-23, kullanıcı: "her aşamanın kaç
+  // saniye sürdüğü").
+  if (step === 'timing' && data && typeof data === 'object') {
+    el.classList.add('trace-timing');
+    const timingLabel = document.createElement('div');
+    timingLabel.className = 'trace-step';
+    timingLabel.textContent = `${STEP_LABELS.timing}: ${data.stage}`;
+    const body = document.createElement('div');
+    body.className = 'trace-body';
+    body.textContent = `${data.seconds.toFixed(2)} sn`;
+    el.appendChild(timingLabel);
+    el.appendChild(body);
+    trace.appendChild(el);
+    trace.scrollTop = trace.scrollHeight;
+    return;
+  }
+
+  const label = document.createElement('div');
+  label.className = 'trace-step';
+  label.textContent = STEP_LABELS[step] || step;
+  el.appendChild(label);
+
+  if (Array.isArray(data)) {
+    if (data.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'trace-empty';
+      empty.textContent = '(sonuç yok)';
+      el.appendChild(empty);
+    } else {
+      for (const item of data) {
+        const chunk = document.createElement('div');
+        chunk.className = 'trace-chunk';
+        chunk.textContent = `[${item.id}] (${item.score}) ${item.text}`;
+        el.appendChild(chunk);
+      }
+    }
+  } else if (data !== null && typeof data === 'object') {
+    // linking_done/generation_done/sql_error gibi dict-şekilli metrikler --
+    // `String(data)` "[object Object]" verirdi, alan alan göster.
+    for (const [key, value] of Object.entries(data)) {
+      const row = document.createElement('div');
+      row.className = 'trace-chunk';
+      const shown = Array.isArray(value) ? value.join(', ') : String(value);
+      row.textContent = `${key}: ${shown || '(boş)'}`;
+      el.appendChild(row);
+    }
+  } else {
+    const body = document.createElement('div');
+    body.className = 'trace-body';
+    body.textContent = String(data);
+    el.appendChild(body);
+  }
+
+  trace.appendChild(el);
+  trace.scrollTop = trace.scrollHeight;
+}
+
+// Ön-bilgilendirme balonu (karar: 2026-08-06, bkz. chatbot/chatbot/
+// preamble.py): asıl cevabı bekleyen "..." balonunun ÜSTÜNE, ayrı ve solgun
+// bir asistan balonu olarak girer -- cevap gelince YERİNDE KALIR (konuşmanın
+// gerçek akışının parçası gibi görünsün). Bu metin `ConversationMemory`ye
+// GİRMEZ ve asıl modele hiç gitmez; yalnız kullanıcıya gösterilir.
+function addPreamble(before, text) {
+  const el = document.createElement('div');
+  el.className = 'msg assistant preamble';
+  el.textContent = text;
+  log.insertBefore(el, before);
+  log.scrollTop = log.scrollHeight;
+  return el;
+}
+
+async function streamChat(message, onPreamble) {
+  const res = await fetch('/api/chat/stream', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({message}),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || ('HTTP ' + res.status));
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let reply = null;
+  let images = [];
+  let documents = [];
+  let chunks = [];
+
+  while (true) {
+    const {value, done} = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, {stream: true});
+
+    let sep;
+    while ((sep = buffer.indexOf('\n\n')) >= 0) {
+      const rawEvent = buffer.slice(0, sep);
+      buffer = buffer.slice(sep + 2);
+
+      let eventType = 'message';
+      let dataStr = '';
+      for (const line of rawEvent.split('\n')) {
+        if (line.startsWith('event: ')) eventType = line.slice(7);
+        else if (line.startsWith('data: ')) dataStr += line.slice(6);
+      }
+      if (!dataStr) continue;
+      const payload = JSON.parse(dataStr);
+
+      if (eventType === 'step') {
+        addTraceStep(payload.step, payload.data);
+        if (payload.step === 'preamble' && onPreamble && payload.data && payload.data.text) {
+          onPreamble(payload.data.text);
+        }
+      }
+      else if (eventType === 'done') {
+        reply = payload.reply;
+        images = payload.images || [];
+        documents = payload.documents || [];
+        chunks = payload.chunks || [];
+      }
+      else if (eventType === 'error') throw new Error(payload.error);
+    }
+  }
+  return {reply, images, documents, chunks};
+}
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  addMessage('user', text);
+  trace.innerHTML = '';
+  const pending = addMessage('assistant', '...');
+  form.querySelector('button[type=submit]').disabled = true;
+  try {
+    const {reply, images, documents, chunks} = await streamChat(
+      text, (msg) => addPreamble(pending, msg));
+    pending.innerHTML = renderMarkdown(reply ?? '(cevap yok)');
+    addAttachments(pending, images, documents);
+    addEvidence(pending, chunks);
+  } catch (err) {
+    pending.remove();
+    addMessage('error', 'Hata: ' + err.message);
+  } finally {
+    form.querySelector('button[type=submit]').disabled = false;
+    input.focus();
+  }
+});
+
+async function doReset() {
+  await fetch('/api/reset', {method: 'POST'});
+  log.innerHTML = '';
+  trace.innerHTML = '';
+}
+resetBtn.addEventListener('click', doReset);
+widgetResetBtn.addEventListener('click', doReset);
+</script>
+</body>
+</html>

@@ -1,0 +1,163 @@
+# chunker default configuration.
+#
+# Principle: no number that affects splitting is hardcoded in code — every
+# such number comes from this file. There are no code-side defaults; if a
+# key is removed from here, loading fails loudly.
+#
+# Override: write a partial TOML with only the keys you want to change and
+# load via `load_config(override=...)`; missing keys fall back to the values
+# here. Unknown keys are rejected. Secrets do NOT go here — they go in
+# `.env`.
+
+[limits]
+# Target chunk size (tokens). The splitting engine aims for this size.
+target_tokens = 512
+# Absolute ceiling: no chunk exceeds this even with the flex allowance.
+hard_max_tokens = 1024
+
+[flex]
+# Flex allowance formula (per-block-type ratio):
+#   flex(block)    = target_tokens * ratios[kind]
+#   effective_limit = min(target_tokens + flex, hard_max_tokens)
+# A ratio of 0 means no flex for that block type. Keys match the inner
+# model's block `kind` values exactly (chunker/core/document.py).
+
+[flex.ratios]
+table = 0.50     # tables are the most valuable atomic structure
+list = 0.35
+code = 0.35
+image = 0.25
+paragraph = 0.10
+heading = 0.0    # a heading alone never becomes a chunk; no flex needed
+
+[packing]
+# Section (heading) boundary strategy — configurable; the two strategies
+# affect different corpora very differently:
+#   "hard"  = a chunk never mixes content from two sections; a small
+#             section becomes a small chunk. heading_path is always single
+#             and clean.
+#   "merge" = consecutive WHOLE sections merge into one chunk while they
+#             fit the token budget (a section enters whole or opens a new
+#             chunk — no "1.5 sections"); heading_path falls back to the
+#             common ancestor prefix, with each section's own heading
+#             still rendered as an MD heading in the text.
+# Default changed to "merge": with "hard", fine-grained datasheet headings
+# (e.g. "Front Side"/"Rear Side" — 30-40 token subsections) kept chunk
+# fill well below target_tokens (median ~105/512), weakening both
+# embedding quality and RAPTOR cluster/sweep coverage. Use the override
+# to switch back to "hard" for corpora that require "one chunk per section".
+section_strategy = "merge"
+# Crumb merging: chunks below this threshold (or whose body is empty —
+# e.g. image-only chunks with meaningless OCR) are merged into a neighbor
+# (next first, else previous) as long as the result fits the hard ceiling.
+# Standalone cover crumbs and heading-only sections invited summarizer
+# hallucinations. 0 = disabled. The "hard" strategy's "sections never mix"
+# guarantee is intentionally pierced only for these sub-threshold crumbs.
+# Raised 32 → 64: 32 missed real-corpus mini sections ("Front Side" = 35
+# tokens) sitting just above the threshold.
+min_chunk_tokens = 64
+
+[fallback_split]
+# Blocks that don't fit the hard ceiling even with the flex allowance are
+# split at their natural boundary: paragraph by sentence, list by
+# top-level item, code by line (fence + language repeated per part).
+# Values are the number of repeated units between consecutive parts (0 =
+# no overlap). Prose overlap prevents anaphora breaks; code/list overlap
+# is misleading, hence the 0 default.
+paragraph_overlap_sentences = 2
+list_overlap_items = 0
+code_overlap_lines = 0
+
+[table_split]
+# Tables that don't fit the hard ceiling are split with k-row overlap.
+overlap_rows = 2
+# Header rows (Table.header_rows) are repeated in every split part.
+repeat_header_rows = true
+# Whether Table.facts sentences are injected into the chunk text. Default
+# was OFF (token-budget worry); switched to ON: facts are now entity-level
+# cartesian sentences (one sentence per product across all columns — see
+# parser describe/table.py `_FACTS_SYSTEM`) and that's what RAG actually
+# looks for in tables — without injection the fact generation adds no
+# benefit. When on: in an unsplit table all facts go below the table; in
+# a split table each fact is attached to its best-matching part by cell
+# overlap, and table-wide facts (matching no row) go in every part. The
+# token budget is measured from the final rendered text INCLUDING facts —
+# the hard ceiling is absolute.
+inject_facts = true
+# Default header-row count when the IR doesn't carry the info. Once the
+# parser adds a `header_rows` field to its IR, that wins; 0 = don't assume
+# any header (no row repetition in split parts).
+default_header_rows = 1
+
+[heading_injection]
+# The heading chain is prepended to the chunk text. `heading_path` is
+# ALWAYS carried as structured metadata; this section only governs the
+# prepend-to-text behavior.
+prepend_to_text = true
+separator = " > "
+# Max levels from the chain (counted from innermost) written into the
+# text; 0 = the whole chain.
+max_levels = 0
+
+[boilerplate]
+# If the section's OWN heading (casefold, trimmed) matches one of these
+# values exactly, the section (with its heading) is dropped entirely:
+# sections like "Contents"/"Revision History" add retrieval noise and
+# carry no answer. The list is kept narrow and conservative — to avoid
+# accidentally dropping real content, only universal/template headings
+# are included; corpus-specific boilerplate is added via the override.
+# Empty list = disabled.
+drop_headings = ["contents", "table of contents", "içindekiler",
+                 "revision history"]
+
+[images]
+# OCR text whose `Image.provenance == "unverified"` enters the chunk body
+# with a label. Rationale: untagged unverified OCR was indistinguishable
+# from the chunk's real table/paragraph text (real example: a table's
+# photo-OCR nearly duplicated the real table sitting in the same chunk,
+# doubling the content). false = old behavior (plain text, untagged).
+label_unverified_ocr = true
+# Whether `Image.ocr_text` enters the chunk BODY. Default off: OCR text
+# is carried only in the structured channel
+# (`ChunkNode.images[].ocr_text`), not injected into the body.
+# `label_unverified_ocr` is only meaningful when this is on (the label
+# goes into the body). Rationale: even tagged, OCR does not separate
+# from the chunk's real paragraph/table text; an "MPLS / 10G / VLANs"
+# word salad OCR'd from a product photo reads like that product's spec
+# and drives wrong answers. true = old behavior.
+inject_ocr = false
+
+[visual]
+# Visual-region type classification plan (mirrors parser's [visual]
+# section): image/table blocks tagged with one of these types do NOT
+# contribute content to the chunk text — a placeholder (type +
+# reference) is rendered instead. Independent from parse-time exclusion:
+# IR content is NOT deleted, just not rendered. Empty list = no type
+# excluded (default: all included). Taxonomy: table, chart,
+# block_diagram, technical_drawing, flowchart, product_photo,
+# decorative, unknown.
+exclude_types = []
+# Whether the parser-produced description (Table.description/
+# Image.description) enters the chunk text. Previously lived only in
+# [table_split] — but a table is not a separate branch of this
+# category (see parser IR's DescribableBlock); the same flag covers
+# both. In tables it's prepended to every split part; in images it's
+# injected alongside OCR/alt_text.
+inject_description = true
+# Separate gate for IMAGE description (only `Image.description`) that
+# NARROWS the flag above. Default off: the description is carried only
+# in the structured channel (`ChunkNode.images[].description`).
+# Rationale is identical to `[images] inject_ocr = false`: the text
+# doesn't separate from real paragraph/table text in the body and reads
+# like a spec. Measured from specs.db: 188 fact rows were produced from
+# image descriptions (e.g. `connector_types` = "On the left side
+# (labeled REAR PANEL), there are input ports for..." — this is a photo
+# description, not a spec), while the product's real connector list
+# already sat in the chunk's normal text. TABLE descriptions (63 rows)
+# are deliberately left alone: they summarize a table that already
+# exists in the chunk, not commentary. true = old behavior.
+inject_image_description = false
+
+[enrichment]
+# On/off flags. When off, the core output passes through unchanged.
+cross_refs = true

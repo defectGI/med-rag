@@ -1,0 +1,7 @@
+# vectorize-specific rules. Generic Python/IDE/OS/secret patterns live in the
+# root .gitignore (same pattern as chunker/.gitignore).
+
+# Output home: its content is generated; only the README documenting the
+# layout is tracked (same pattern as chunker/storage; see storage/README.md).
+storage/*
+!storage/README.md

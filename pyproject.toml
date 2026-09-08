@@ -1,0 +1,179 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# Root package (`medrag`, src layout). All component code lives under src/medrag/;
+# the root-level component directories (chatbot/, retrieval/, vectorize/,
+# parser/, pipeline/, ...) hold data/config/documentation only. The dependency
+# declaration is split into a small shared base plus three optional extras
+# (below).
+name = "medrag"
+version = "0.1.0"
+requires-python = ">=3.11"
+# "base" group -- three packages that every subproject
+# (parser/chunker/vectorize/api/benchmark) used to declare separately now live
+# here once. Versions were derived from the existing 13 requirements/pyproject
+# files (collected via grep); where pins conflicted, the highest was chosen.
+# redis/rq of the original project were REMOVED with the med-rag fork (the
+# WhatsApp worker/queue surface does not exist here).
+dependencies = [
+    "pydantic>=2.13.4,<3",
+    "python-dotenv>=1.2.2",
+    "tqdm>=4.66",
+    # For the PID-liveness check of the nightly run lock
+    # (os.kill(pid, 0) translates to TerminateProcess on Windows, not safe --
+    # see the docstring of pipeline/cli/nightly_lock.py). It was already
+    # installed as a transitive dependency; now declared directly.
+    "psutil>=5.9",
+]
+
+# "parse" group -- dependencies of the document-parsing (parser/) side only.
+# Because embedding calls go to Ollama over HTTP (the worker installs no heavy
+# embedding library), this group is genuinely separable from the production
+# (serve) image.
+# numpy, huggingface_hub, anthropic -- three gaps found in a scan, declared
+# nowhere before. numpy + huggingface_hub: transitive dependencies of
+# docling-ibm-models used by tableformer_adapter.py, but since they are imported
+# directly by code they must also be declared per PEP 508. anthropic:
+# llm/anthropic_client.py, the optional SDK lazily imported when
+# LLM_PROVIDER=anthropic is chosen (openai_compat.py and ollama_recovery.py use
+# stdlib urllib and need no extra package). None of the three had a version pin
+# in any requirements*.txt/pyproject.toml -- the lower bounds are assumptions
+# (flagged in notes).
+[project.optional-dependencies]
+parse = [
+    "pdfplumber>=0.11",
+    # pytesseract, docling-ibm-models, opencv-python, lxml: no version pin in
+    # any requirements*.txt/pyproject.toml (they enter the code as
+    # optional/lazy imports, e.g. tableformer_adapter.py, docx_parser.py) --
+    # the lower bounds given here are a reasonable assumption derived from the
+    # then-current PyPI stable releases, not from a real pin (flagged in notes).
+    "pytesseract>=0.3.10",
+    "docling-ibm-models",
+    "opencv-python",
+    "numpy>=1.26",
+    "huggingface_hub>=0.24",
+    "anthropic>=0.40",
+    "python-docx>=1.1",
+    "python-pptx>=0.6",
+    "openpyxl>=3.1",
+    "lxml",
+    "Pillow>=10",
+]
+
+# "serve" group -- runtime dependencies of the API/web + retrieval/vectorize
+# side. text2sql-engine-native used to sit unconditionally in the root
+# dependencies; with the extras introduced it moved here -- the
+# [tool.uv.sources] editable path mapping remains valid independently of the extra.
+serve = [
+    "flask>=3",
+    # gunicorn: no version pin in any requirements/pyproject file (mentioned
+    # only in a decision record and the compose draft) -- the lower bound is an
+    # assumption (flagged in notes).
+    "gunicorn>=21",
+    "qdrant-client>=1.12,<2",
+    "langchain-core>=0.3",
+    "langchain-openai>=0.2",
+    # intent_classification's `build_default_chat_model` constructs
+    # `ChatAnthropic` for `LLM_PROVIDER=anthropic` (see
+    # retrieval/modules/intent_classification/factory.py) -- the other four
+    # chatbot roles (answering/reconciler/continuation/slot_selection) use
+    # core/llm/anthropic.py over stdlib urllib and need no SDK; only this
+    # module is bound to LangChain's own BaseChatModel interface, so the
+    # official package is required for it.
+    "langchain-anthropic>=0.3",
+    "sqlglot>=25",
+    "text2sql-engine-native",
+    "tiktoken==0.13.0",
+    "PyYAML>=6.0",
+]
+
+# "dev" group -- required only on a developer machine / in CI.
+# import-linter: the layer contracts (independence: medrag.api <->
+# medrag.pipeline; layers: medrag.core at the bottom) are invoked from a pytest
+# test -- if the package were not declared here it would drop out of the
+# environment after `uv lock` and that test would break silently with
+# ModuleNotFoundError.
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.6",
+    # mypy, import-linter: never used in any requirements/pyproject file so far
+    # (the repo had no type checking) -- no version pin exists, the lower bound
+    # is an assumption (flagged in notes).
+    "mypy>=1.10",
+    "build>=1",
+    "twine>=5",
+    "import-linter>=2.0",
+]
+
+[project.scripts]
+# Single entry point of the incremental nightly run -- orchestrates the order
+# scan -> parse -> chunk -> facts -> vectorize (see the module docstring of
+# run_nightly.py). Not strictly required, but usage like
+# `uv run medrag-nightly --from chunk` is shorter than
+# `python -m medrag.pipeline.cli.run_nightly --from chunk` -- and it works
+# automatically with an editable install.
+medrag-nightly = "medrag.pipeline.cli.run_nightly:main"
+
+[tool.uv.sources]
+# text2sql-engine-native (packages/text2sql-native/): editable path dependency
+# -- a fork vendored into this repo, not published on PyPI.
+text2sql-engine-native = { path = "packages/text2sql-native", editable = true }
+
+# Root-level pytest config. run_e2e_test.py is a CLI entry point, NOT a test
+# module: it resolves PARSER_DIR/BELGELER_DIR from `cli/.env` at IMPORT time,
+# so bare `pytest src/ tools/` dies during collection ("KeyError:
+# 'PARSER_DIR'") instead of running the suite. Its real tests live under
+# cli/tests/. (Direct `pytest src/medrag/api` runs keep using api/pytest.ini --
+# a closer ini file always wins.)
+[tool.pytest.ini_options]
+addopts = "--ignore=src/medrag/pipeline/cli/run_e2e_test.py"
+
+# The root package now installs tools/ together with src/medrag
+# (tools/benchmark, tools/viz, tools/spec_schema, tools/baseline). chatbot/,
+# retrieval/, vectorize/, chunker/, pipeline/, facts/ host no code (they were
+# moved under src/medrag) -- they have no __init__.py, so find() does not treat
+# them as packages; the include pattern is still restricted to "medrag*" and
+# "tools*" only (defensive, against an accidental __init__.py).
+[tool.setuptools.packages.find]
+where = ["src", "."]
+include = ["medrag*", "tools*"]
+
+# Layer rule -- pipeline/ and api/ do not import each other (the coupling is
+# the DB and the file system); core/ does not import those three
+# (api/pipeline/worker) either. worker/ does not exist yet -- the ban is in
+# place so it is ready when it is added.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"medrag.pipeline".msg = "api/ pipeline'i import etmez; bağ DB ve dosya sistemidir"
+"medrag.api".msg = "pipeline/ api'yi import etmez"
+"medrag.worker".msg = "core/ worker'ı import etmez"
+
+[tool.ruff.lint.per-file-ignores]
+"src/medrag/pipeline/*" = ["TID251"]
+"src/medrag/api/*" = ["TID251"]
+"tools/*" = ["TID251"]
+
+# Validate the layer contracts with import-linter, more strongly than the ruff
+# TID251 banned-api rule: over the real module graph, covering transitive
+# chains and not only direct imports. Scope is deliberately only the `medrag`
+# package (everything under src/medrag) -- tools/ was packaged as a top layer
+# but is not part of this contract. src/medrag/tests/test_import_contracts.py
+# calls it from pytest through importlinter's Python API
+# (importlinter.cli.lint_imports) and checks the exit code (the importlinter
+# package has no __main__.py, so `python -m importlinter` does not work; this
+# is the way to call the `lint-imports` console script from a subprocess
+# without hunting for a platform-dependent .exe/shim).
+[tool.importlinter]
+root_package = "medrag"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "api/pipeline bağımsızlığı"
+type = "independence"
+modules = ["medrag.api", "medrag.pipeline"]
+
+[[tool.importlinter.contracts]]
+name = "core en altta katman sırası"
+type = "layers"
+layers = ["medrag.api | medrag.pipeline", "medrag.core"]

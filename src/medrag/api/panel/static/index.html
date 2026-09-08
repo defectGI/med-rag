@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8" />
+<title>medrag — Pipeline Lineage Paneli</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<header>
+  <h1>Pipeline Lineage Paneli</h1>
+  <p class="sub">Gözlemleyici katman — hiçbir aşamayı tetiklemez/durdurmaz. Veri
+  <code>ingest.py</code>'nin en son çalışmasından; tazelemek için tekrar çalıştırın.</p>
+  <p class="ingest-meta" id="ingest-meta"></p>
+</header>
+
+<section id="dashboard" class="dashboard">
+  <h2>Son Gecelik Koşu</h2>
+  <div class="dashboard-headline">
+    <span class="outcome-badge notrun" id="outcome-badge">—</span>
+    <span id="outcome-date" class="dashboard-date"></span>
+  </div>
+  <div class="dashboard-counters" id="dashboard-counters"></div>
+</section>
+
+<main>
+  <section id="issues">
+    <h2>Issue Listesi</h2>
+    <div class="filter-row">
+      <label>stage:
+        <select id="issue-filter-stage">
+          <option value="">(hepsi)</option>
+          <option value="scan">scan</option>
+          <option value="parse">parse</option>
+          <option value="chunk">chunk</option>
+          <option value="facts">facts</option>
+          <option value="vectorize">vectorize</option>
+          <option value="panel">panel</option>
+        </select>
+      </label>
+      <label>severity:
+        <select id="issue-filter-severity">
+          <option value="">(hepsi)</option>
+          <option value="error">error</option>
+          <option value="warning">warning</option>
+          <option value="review">review</option>
+        </select>
+      </label>
+      <label>source_doc: <input id="issue-filter-source-doc" placeholder="doc id" /></label>
+      <label>reason:
+        <select id="issue-filter-reason">
+          <option value="">(hepsi)</option>
+          <option value="UNRESOLVED_DOC">UNRESOLVED_DOC</option>
+          <option value="UNRESOLVED_CHUNK">UNRESOLVED_CHUNK</option>
+          <option value="NEW_KEY_PROPOSAL">NEW_KEY_PROPOSAL</option>
+          <option value="SKIPPED_FACT">SKIPPED_FACT</option>
+        </select>
+      </label>
+      <button id="issue-filter-btn">Filtrele</button>
+    </div>
+    <div class="filter-row">
+      <label>yazma token'i: <input id="write-token" type="password" placeholder="X-Panel-Write-Token" /></label>
+    </div>
+    <div class="table-wrap">
+      <table id="issues-table">
+        <thead>
+          <tr>
+            <th>id</th><th>stage</th><th>severity</th><th>source_doc</th><th>entity_ref</th>
+            <th>reason</th><th>detay</th><th>created_at</th><th>durum</th><th></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="stages">
+    <h2>Aşama Zaman Çizelgesi</h2>
+    <div id="stage-cards" class="cards"></div>
+  </section>
+
+  <section id="conflicts">
+    <h2>Conflict Paneli</h2>
+    <div class="filter-row">
+      <label>product_code filtrele: <input id="conflict-filter" placeholder="örn. PN1071" /></label>
+      <button id="conflict-filter-btn">Filtrele</button>
+    </div>
+    <div class="table-wrap">
+      <table id="conflicts-table">
+        <thead>
+          <tr><th>product_code</th><th>block</th><th>key</th><th>detay</th><th>flagged_at</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="graph">
+    <h2>Lineage Gezgini</h2>
+    <div class="filter-row">
+      <label>node_type:
+        <select id="graph-node-type">
+          <option value="document">document</option>
+          <option value="chunk_set">chunk_set</option>
+          <option value="product">product</option>
+          <option value="family">family</option>
+        </select>
+      </label>
+      <label>node_id: <input id="graph-node-id" placeholder="doc_id / product_code / family adı" /></label>
+      <button id="graph-lookup-btn">Göster</button>
+    </div>
+    <svg id="graph-svg" width="100%" height="360" viewBox="0 0 900 360" preserveAspectRatio="xMidYMid meet"></svg>
+    <div id="graph-detail"></div>
+  </section>
+
+  <section id="cascade">
+    <h2>Yeniden Çalıştırma Uyarısı (bilgi amaçlı, hiçbir şey tetiklemez)</h2>
+    <div class="filter-row">
+      <label>stage:
+        <select id="cascade-stage">
+          <option value="parse">parse</option>
+          <option value="chunk">chunk</option>
+          <option value="facts">facts</option>
+        </select>
+      </label>
+      <label>doc_id: <input id="cascade-node-id" placeholder="doc_id" /></label>
+      <button id="cascade-btn">"Bu aşamayı yeniden çalıştırırsam ne bayatlar?"</button>
+    </div>
+    <div id="cascade-result"></div>
+  </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

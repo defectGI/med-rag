@@ -1,0 +1,22 @@
+Base Material:				FR-4
+No. of Layers:				10
+PCB Dimensions:				281.90 x 144.32 mm
+PCB Thickness:				1,6 mm
+PCB Color:					Blue
+Top-Bottom Overlay Color:	White
+Surface Finish:				ENIG
+Copper Weight:				
+			Top Layer:		1/2oz
+			Inner Layer 1:	1oz
+			Inner Layer 2:	1oz
+			Inner Layer 3:	1oz
+			Inner Layer 4:	1oz
+			Inner Layer 5:	1oz
+			Inner Layer 6:	1oz
+			Inner Layer 7:	1oz
+			Inner Layer 8:	1oz
+			Bottom Layer:	1/2oz
+Impedance Control:			Yes
+	Layer	Ref. Layer	Impedance	Width/Space
+	  1			2			50			8 mil
+	  10		9			50			8 mil

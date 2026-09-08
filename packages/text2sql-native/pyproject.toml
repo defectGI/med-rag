@@ -1,0 +1,83 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# Distribution name on PyPI-namespace terms, but this package is NEVER
+# published to PyPI. Renamed away from "text2sql-engine" (decision:
+# 2026-08-06, THIRD recurrence of the same incident -- see chatbot/DEVLOG.md):
+# pinning the version string ("==0.2.0+ollama1") was meant to make a plain
+# `pip install text2sql-engine` unsatisfiable, but a real PyPI package under
+# that exact distribution name still exists (this fork's own author's older,
+# now-unmaintained public release) -- any install step that names
+# "text2sql-engine" without the local path risks resolving to it, and worse,
+# both packages provide the SAME import name (`text2sql`), so if both ever
+# land in one environment they silently shadow each other. Renaming BOTH the
+# distribution name AND the import package name (`text2sql_native`, see
+# `[tool.setuptools.packages.find]` below) makes collision structurally
+# impossible, not just unlikely: nothing on PyPI has ever been published
+# under either of these names.
+name = "text2sql-engine-native"
+# Local fork, vendored into medrag (chatbot/vendor/text2sql-engine) --
+# NOT published to PyPI, never will be. Version reset to 1.0.0 alongside the
+# rename: this is no longer "a patched 0.2.0", it is the sole actively-
+# maintained codebase (the old public repo this diverged from is stale).
+version = "1.0.0"
+description = "Schema-agnostic, config-driven Text-to-SQL library (2-stage LLM pipeline). Produces a SQL string; never connects to or executes against a database. Independent fork, actively maintained here -- not affiliated with the text2sql-engine PyPI package."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Mehmet Kaan Durupunar" }]
+keywords = ["text-to-sql", "nl2sql", "llm", "sql-generation", "schema-linking"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries",
+    "Typing :: Typed",
+]
+
+# Core runtime dependencies. The provider SDKs (openai, anthropic) are imported
+# lazily inside their provider modules, so the library imports and tests run
+# without them installed.
+dependencies = [
+    "python-dotenv>=1.0",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+openai = ["openai>=1.0"]
+anthropic = ["anthropic>=0.34"]
+# Everything needed to talk to both providers.
+all = ["openai>=1.0", "anthropic>=0.34"]
+# Test toolchain.
+dev = ["pytest>=7.4"]
+
+# No [project.urls] -- the old ones (github.com/defectGI/sqlretrieve) point
+# at the stale, unmaintained public repo this fork left behind (2026-08-06).
+# This package's only home is this vendored copy.
+
+[tool.setuptools.packages.find]
+include = ["text2sql_native*"]
+
+[tool.setuptools.package-data]
+"text2sql_native" = ["prompts/*.txt", "py.typed"]
+
+[tool.setuptools]
+license-files = ["LICENSE"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

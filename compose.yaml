@@ -1,0 +1,328 @@
+# =============================================================================
+# Compose stack (med-rag). FOUR services: web, pipeline-worker, pipeline, qdrant.
+#
+# The WhatsApp delivery surface (api + worker + redis) of the original
+# doc-rag-pipeline was REMOVED in this fork -- the chat UI (`web`) is the only
+# serving surface.
+#
+# Why `pipeline` is a SERVICE (not a one-off container): the deployment
+# scheduler runs scheduled tasks as `docker exec` into an EXISTING container --
+# it does not start a new container, cannot pick a different image, and a task
+# gets no volume/env of its own (both come from the container's definition).
+# So the pipeline image must be up as an idling service to be schedulable at
+# all; see the block at the `pipeline` service below.
+#
+# TOPOLOGY:
+#   web --> qdrant (this stack)
+#       \-> Ollama / OpenAI-compatible endpoint (on the HOST, via
+#           host.docker.internal)
+#   specs.db is not a service: it is a file under /corpus (facts stays in the
+#   codebase but is NOT part of the active med-rag path).
+#
+# NOTE: unlike the original compose.yaml, `web` is NOT behind a profile -- in
+# med-rag it IS the product. Delete this file's `web` block if you want a
+# pipeline-only deployment.
+
+# Project name is FIXED. Deployment tools clone the repo into their own
+# directory; without `name:`, docker compose derives the project name from the
+# directory -- which points at DIFFERENT (empty) volumes. Keep this stable
+# across redeploys so volumes/containers reattach instead of duplicating.
+name: med-rag
+
+services:
+  web:
+    # The chat UI -- the only serving surface in med-rag.
+    image: ${REGISTRY_IMAGE:-medrag-runtime}:${TAG:-local}
+    build:
+      context: .
+      target: runtime
+    # gunicorn FACTORY syntax (create_app()). -w 1: session state (session_state)
+    # is process-local -- a second worker would split sessions.
+    # --threads (gthread worker class): webapp uses SSE streams; a sync worker
+    # blocks for the whole stream duration, gthread gives one thread per stream.
+    # 8 concurrent streams is enough for an internal tool.
+    command: >-
+      gunicorn -w 1 --threads 8 -b 0.0.0.0:8507 "medrag.api.webapp:create_app()"
+    env_file: .env
+    environment:
+      # Qdrant is a real dependency (top_n + evidence).
+      QDRANT_URL: http://qdrant:6333
+      # Operator override for chunk_store.py (CHUNK_CORPUS_ENV); unset falls
+      # back to /app/chunker/storage inside the image -- where there are NO
+      # files (.dockerignore excludes `chunker/`), leaving the evidence panel
+      # empty.
+      CHATBOT_CHUNK_CORPUS_PATH: /corpus/chunks/all_chunks.json
+      # CHATBOT_LOG_DIR must point at a persistent path (the `logs:/logs`
+      # volume below). CAUTION: that persistent path CANNOT be /corpus -- the
+      # serve side mounts it `:ro`, `mkdir` dies with Errno 30 and gunicorn
+      # cannot boot.
+      CHATBOT_LOG_DIR: /logs/chatbot
+      # Conversation logs are the ONLY accountability trace of an
+      # unauthenticated internal tool -- so they must persist (same writable
+      # volume).
+      CHATBOT_CONVERSATION_LOG_DIR: /logs/conversations
+      # webapp's `GET /api/images/<image_id>` endpoint resolves the parser's
+      # blob store via the FILE SYSTEM (no code import; see api/.env.example).
+      # It MUST point at the SAME path as `pipeline`'s STORAGE_IMAGES_DIR -- on
+      # divergence every image returns 404.
+      CHATBOT_IMAGE_STORAGE_DIR: /corpus/storage/images
+      # For document downloads, `document_store.py` FIRST tries `BELGELER_DIR`
+      # + `rel_path`: `document.file_path` is an ABSOLUTE path carrying the
+      # path of whichever machine built the registry (rows written on a laptop
+      # 404'd on the server -> every document 404). Reuses the env name the
+      # pipeline already uses -- no new name.
+      BELGELER_DIR: /corpus/BELGELER
+      # --- kütüphane API'si (medrag.api.library) ---
+      # api tarafı da pipeline ile AYNI dosya sözleşmelerine yazar/okur:
+      # registry, parse çıktısı, iş kuyruğu (ISLER_DIR), durum (DURUM_DIR).
+      # Pipeline-worker ile aynı /corpus yolları -- divergence'da upload çalışır
+      # ama işlenmez.
+      DOCUMENT_NODES_PATH: /corpus/document_nodes.json
+      PARSED_OUTPUT_DIR: /corpus/parsed
+      ISLER_DIR: /corpus/isler
+      DURUM_DIR: /corpus/durum
+      # Tek kullanıcı şifresi (boşsa auth kapalı + uyarı). Gizli değer .env'den
+      # gelir; burada yalnız operatörün görebileceği bir ad var.
+      MEDRAG_SIFRE: ${MEDRAG_SIFRE:-}
+      # facts is dormant in med-rag; left pointing at the same path `pipeline`
+      # would write to, should the structured path ever be re-enabled.
+      CHATBOT_DB_QUERY_DB_PATH: /corpus/facts/db/specs.db
+    healthcheck:
+      # `webapp.py` has no /health; the lightest real endpoint here is `GET /`
+      # (the UI page). No curl in the image -- python urllib is always there.
+      # Generous start_period: create_app() wires the orchestrator/config/
+      # Qdrant at startup, which takes a few seconds.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8507/')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    ports:
+      - "8507:8507"
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    extra_hosts:
+      # Ollama / LLM endpoint runs on the HOST. On Linux, host.docker.internal
+      # does NOT arrive automatically -- without this line, requests from the
+      # container die with "name not resolved".
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # Logs must live on a WRITABLE path that survives redeploys. Host path
+      # is a PLAIN FOLDER (not a named volume): non-technical users must be
+      # able to open the logs from a file manager -- a named volume lives
+      # under /var/lib/docker/volumes/... and needs root.
+      - ${LOGS_HOST_DIR:-/home/user/med-rag/loglar}:/logs
+      # READ-WRITE (med-rag farkı): api artık korpusa YAZAR (upload ->
+      # BELGELER, registry, isler/, durum/). Orijinal projenin `:ro` kuralı
+      # burada geçerli değil -- api bir yazardır (pipeline-worker ile aynı
+      # dosya sözleşmelerini paylaşır).
+      - ${CORPUS_HOST_DIR:-/home/user/med-rag/korpus}:/corpus
+    restart: unless-stopped
+
+  pipeline-worker:
+    # =========================================================================
+    # YAŞAM DÖNGÜSÜ WORKER'ı (A6): `ISLER_DIR`'deki iş dosyalarını izler,
+    # tek-dosya parse→chunk→vectorize (process) ve türev temizliği (delete)
+    # koşar. api işleri dosya olarak yazar (import yok -- katman kuralı),
+    # worker pipeline imajında koşar.
+    #
+    # TEK replika: işler sırayla işlenir; ikinci bir worker aynı dosya
+    # sözleşmelerine yarışır (claim atomik ama parse/vectorize paraleli
+    # maliyet/GPU yarışı üretir).
+    # =========================================================================
+    image: ${REGISTRY_IMAGE:-medrag-pipeline}:${TAG:-local}
+    build:
+      context: .
+      target: pipeline
+    command: python -m medrag.pipeline.lifecycle.worker
+    env_file: .env
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      # pipeline'ın AYNI data env'leri (tek /corpus, tek yazar kümesi).
+      BELGELER_DIR: /corpus/BELGELER
+      DOCUMENT_NODES_PATH: /corpus/document_nodes.json
+      PARSED_OUTPUT_DIR: /corpus/parsed
+      ISLER_DIR: /corpus/isler
+      DURUM_DIR: /corpus/durum
+      # Worker, parse/chunk/vectorize aşamalarını pipeline ile AYNI env
+      # üzerinden koşar (bkz. pipeline servisi -- LLM/VLM/embedding değerleri
+      # .env'den gelir; parse'a özgü değerler task komutunda verilir).
+      CHUNKER_DIR: /corpus/chunker
+      CHUNKS_OUTPUT_DIR: /corpus/chunks
+      NIGHTLY_BACKUP_ROOT: /corpus/nightly_backups
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ${CORPUS_HOST_DIR:-/home/user/med-rag/korpus}:/corpus
+    # NO healthcheck: worker'ın HTTP portu yok; "süreç yaşıyor mu" pgrep'siz
+    # ölçülemez. Restart politikası kesinti toparlamayı (recover) zaten sağlar.
+    restart: unless-stopped
+
+  pipeline:
+    # =========================================================================
+    # NIGHTLY RUN. This image MUST live as a persistent service for a
+    # mechanical reason: schedulers run tasks as `docker exec` into an
+    # EXISTING container -- for the pipeline image to be schedulable, a
+    # RUNNING container is REQUIRED.
+    #
+    # `sleep infinity`: this container does NO work; it only stays up as an
+    # exec target. CPU ~0, RAM ~0; the disk cost is the `pipeline` image
+    # itself (tesseract + opencv + parse chain). SINGLE REPLICA
+    # (nightly_lock.py already rejects a second concurrent run).
+    # =========================================================================
+    build:
+      context: .
+      target: pipeline
+    image: ${REGISTRY_IMAGE:-medrag-pipeline}:${TAG:-local}
+    command: sleep infinity
+    env_file: .env
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      # --- scan (classify_documents.py) -------------------------------------
+      # CAUTION: BELGELER_DIR-equivalents are also READ via `os.environ[...]`
+      # (classify_documents.py::_resolve) -- a missing one dies loudly with
+      # KeyError, there is no silent default. PRODUCT_INFO_DIR is OPTIONAL in
+      # med-rag (catalog-less scan mode: no product_nodes.json -> everything
+      # registers with owner_ids=[]).
+      BELGELER_DIR: /corpus/BELGELER
+      OUTPUT_PATH: /corpus/document_nodes.json
+      # --- parse / chunk (run_parse_pipeline.py, run_chunk_pipeline.py) -----
+      # PARSER_DIR is IMAGE-internal (code), the others are /corpus (data) --
+      # the code/data split is deliberate. Under DOCUMENT_NODES_PATH, parse
+      # writes the `parse` block and chunk writes the `chunk` block, so /corpus
+      # is read-write for this service (`:ro` on the serve side).
+      PARSER_DIR: /app/src/medrag/pipeline/parser
+      DOCUMENT_NODES_PATH: /corpus/document_nodes.json
+      PARSED_OUTPUT_DIR: /corpus/parsed
+      CHUNKER_DIR: /corpus/chunker
+      CHUNKS_OUTPUT_DIR: /corpus/chunks
+      # The chunk source on the facts side: `discover.py:65` reads this; unset,
+      # it falls back to `_REPO_ROOT / "chunker" / "storage"` -- a directory NOT
+      # in the image (.dockerignore `chunker/`), so facts would never see a
+      # single chunk. It MUST point at the same place the chunk stage OUTPUTS
+      # to. (facts is dormant in med-rag but stays wired.)
+      CHUNKER_OUTPUT_DIR: /corpus/chunks
+      # --- nightly backup -----------------------------------------------------
+      # Default is `_REPO_ROOT / "nightly_backups"` = /app/nightly_backups, i.e.
+      # CONTAINER-INTERNAL -- it evaporates on every redeploy. The backup is the
+      # ONLY safety net against a nightly run overwriting manually corrected
+      # data; a backup that is not persistent is not a backup. /corpus lives on
+      # the host.
+      NIGHTLY_BACKUP_ROOT: /corpus/nightly_backups
+      # `run_nightly.main()` derives the "run in progress" marker from
+      # `NIGHTLY_LOCK_PATH` itself. If the lock path defaults to a
+      # container-internal temp dir, every redeploy recreates the container and
+      # deletes BOTH the lock AND the marker. Persisting the lock carries no
+      # PID-namespace-collision risk because `nightly_lock.py::_is_stale`
+      # decides by hostname (not PID).
+      NIGHTLY_LOCK_PATH: /corpus/nightly.lock
+      # The shared resolver of `discover.py`/`load_to_db.py`/`build_all.py`/
+      # `retry_failed.py`/`build_facts_db.py`
+      # (`core/paths.py::resolve_specs_db_path`) reads this. (facts is dormant
+      # in med-rag; kept aligned with CHATBOT_DB_QUERY_DB_PATH above.)
+      SPECS_DB_PATH: /corpus/facts/db/specs.db
+      # --- vectorize ---------------------------------------------------------
+      # vectorize/cli.py reads this as REQUIRED (the root of the chunk JSONs);
+      # unset, the stage fails. It must be the SAME root that chunk outputs to.
+      VECTORIZE_INPUT_DIR: /corpus/chunks
+      # vectorize's OWN staleness state (state.json + run_log.json). The
+      # default `./storage` is RELATIVE -- in the container CWD is /app, so it
+      # lands in /app/storage, i.e. LOST on every redeploy. When lost, the run
+      # is not WRONG, but every scope is re-embedded (see the docstring of
+      # vectorize/state.py).
+      VECTORIZE_OUTPUT_DIR: /corpus/vectorize
+      # --- nightly-run CONTINUATION STATE (all for the same reason) ----------
+      # Every default below lives INSIDE the container (/app...), i.e.
+      # `docker compose up -d --force-recreate` WIPES them. The promise "an
+      # interrupted nightly run resumes where it left off" depends on these
+      # files SURVIVING.
+      #
+      # `results/<CODE>.json` produced by facts (run_full.py WRITES it,
+      # load_to_db.py READS it -- ONE env; on divergence, load finds nothing).
+      FACTS_RESULTS_DIR: /corpus/facts/results
+      # `load_to_db.py`'s `new_key_proposals.jsonl`: the proposal queue for
+      # fields that are not in the dictionary but the model genuinely read from
+      # the document.
+      FACTS_QUEUE_DIR: /corpus/facts/queue
+      # Checkpoint of the ownership stage (`chunk_owner_progress.jsonl`) AND its
+      # output (`chunk_ownership_all.json`). If lost, ALL chunks of multi-owner
+      # documents are re-asked to the LLM.
+      CHUNK_OWNERSHIP_DIR: /corpus/facts/chunk_ownership
+      # Nightly reports (`nightly_YYYY-MM-DD.json`, kept INDEFINITELY). The
+      # panel calls the SAME `resolve_reports_dir()` -- when the panel runs as
+      # a service, IT must get this value too.
+      NIGHTLY_REPORTS_DIR: /corpus/reports
+      # `issues.db` (the SKIPPED_FACT/UNRESOLVED_DOC/UNRESOLVED_CHUNK queue).
+      # core/paths.py's default is inside the image -- LOST on every redeploy.
+      ISSUES_DB_PATH: /corpus/facts/issues.db
+      # Persistent queue of MODIFIED doc_ids whose "forget" was applied but
+      # whose facts/load has NOT yet completed successfully.
+      FACTS_PENDING_REWORK_PATH: /corpus/facts/pending_rework.jsonl
+      # The parser's content-addressed blob store (`sha256:<hex>` -> file).
+      # THIS is the one SILENT-DATA-LOSS point of the pair: the parsed IR is
+      # persistent in /corpus and still references `image_id`s, but the blobs
+      # flew away in /app/storage/images; since the document's `content_hash`
+      # has not changed it is NEVER re-parsed -- the images NEVER come back
+      # (panel/chatbot 404).
+      STORAGE_IMAGES_DIR: /corpus/storage/images
+      # VLM classification/captioning cache (keyed by sha256 + prompt version).
+      # If lost, nothing goes WRONG, but the next parse asks VLM_CLASSIFY for
+      # every crop all over again.
+      STORAGE_LABELS_DIR: /corpus/storage/labels
+      # --- parse's LLM does NOT live HERE, it lives in the TASK COMMAND -------
+      # Do NOT pin parse-specific `LLM_PROVIDER/BASE_URL/MODEL/API_KEY` in this
+      # `environment:` block. The two sides want different values (e.g. parse
+      # wants a base_url WITHOUT the `/v1` suffix while the chatbot wants one
+      # WITH `/v1`) and the env is shared app-wide. Parse-specific LLM_* values
+      # go IN THE SCHEDULED TASK'S COMMAND
+      # (`sh -c 'LLM_MODEL=... medrag-nightly'`) -- they apply only to that
+      # process, never touch the chatbot.
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    extra_hosts:
+      # Ollama on the HOST. parse (VLM) and facts (LLM) are the heaviest
+      # consumers; without this line the nightly run cannot resolve names at
+      # the parse stage.
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ${LOGS_HOST_DIR:-/home/user/med-rag/loglar}:/logs
+      # NO :ro -- this service is the ONLY WRITER of /corpus
+      # (document_nodes.json, parsed/, chunks/). The serve services mount the
+      # same path :ro.
+      - ${CORPUS_HOST_DIR:-/home/user/med-rag/korpus}:/corpus
+    # NO healthcheck, and there must not be one: this container is a
+    # `docker exec` TARGET idling on `sleep infinity` -- it serves nothing,
+    # there is nothing to probe. More importantly a healthcheck would be
+    # HARMFUL: an orchestrator restarts unhealthy containers and stops the
+    # ENTIRE application after 10 crash-restarts. Adding any reason to
+    # restart mid-run -- possibly hours into a nightly run -- would defeat the
+    # "resume where it left off" design.
+    restart: unless-stopped
+
+  qdrant:
+    # Pinned version: `latest` brings unpredictable upgrades. Keep the version
+    # that wrote the existing collection data; an upgrade is never standalone:
+    # pair it with volume verification (points_count). CAUTION: Docker Hub
+    # tags carry the `v` prefix (v1.19.0) -- writing 1.19.0 dies with
+    # "manifest unknown".
+    image: qdrant/qdrant:v1.19.0
+    healthcheck:
+      # No curl in the qdrant image; the bash /dev/tcp trick. CAUTION: this
+      # assumes bash exists in the image -- verify on first run; if bash is
+      # missing, an alternative is busybox wget against /healthz.
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    volumes:
+      - qdrant:/qdrant/storage
+    restart: unless-stopped
+
+volumes:
+  qdrant: {}
