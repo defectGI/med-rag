@@ -1,11 +1,14 @@
 # med-rag — Geliştirme Planı
 
-> Durum: UYGULAMA (Grup A, C, B, D tamamlandı; E ve F rötuş aşamasında).
-> Grup A çekirdek + 62 yeni offline test, tam suite 2096 passed / 61 önceden-
-> var-olan fail (fork baseline'ı) / sıfır regresyon; frontend `npm run build`
-> yeşil; ruff yeni kodda temiz. B5 (sohbet geçmişi + yeni sohbet) tamamlandı:
-> `/api/chat/history` okuma ucu + `/api/reset` oturum çerezi yenileme + SPA
-> geçmiş yükleme/`Yeni sohbet` düğmesi; 2105 passed / aynı 61 baseline fail.
+> Durum: UYGULAMA TAMAMLANDI (Grup A, B, C, D + E; F kabul aşamasında).
+> Tam suite baseline'da: 2105 passed / 61 önceden-var-olan fail (fork
+> baseline'ı) / sıfır regresyon; frontend `npm run build` yeşil; ruff yeni
+> kodda temiz. B5 (sohbet geçmişi + yeni sohbet) tamamlandı. E grubu:
+> compose (web + pipeline-worker + pipeline + qdrant), okuma-yazma volume
+> şeması, gecelik yedek + geri yükleme prosedürü (`DEPLOY.md` §3.1),
+> gözlemlenebilirlik ve auth/upload sertleştirmesi tamam. F: uçtan uca
+> duman testi `tools/e2e_smoke.py` hazır; canlı koşum ilk deploy sonrası
+> yapılacak. Kullanım kılavuzu: `KULLANIM.md`.
 
 
 ---
@@ -163,14 +166,14 @@ shadcn/ui üzerine kurulu modern bir SPA'dır.
 
 ## 6. Açık Karar Noktaları (uygulama sırasında netleşir)
 
-| # | Konu | Seçenekler |
-|---|------|-----------|
-| Açık-1 | İş kuyruğu konumu | api içi thread havuzu (öneri: tek kullanıcı, basit) vs ayrı worker servisi |
-| Açık-2 | Scan/nightly rolü | Tamamen event-driven mı, yoksa gecelik uzlaştırma taraması da dursun mu (öneri: uzlaştırma kalsın, opsiyonel) |
-| Açık-3 | Embedding modeli | Mevcut config'teki model korunur mu; TR/EN karışık için bge-m3 sınıfı çok-dilli model önerisi |
-| Açık-4 | Panel (lineage) kaderi | Yeni akışa uyarlanır mı, kapsamdan çıkar mı |
-| Açık-5 | Upload üst limitleri | Dosya başına max boyut, toplu yükleme adedi |
-| Açık-6 | Chat geçmişi saklama | Süresiz mi, silinebilir mi; conversation_log mu yeni şema mı |
+| # | Konu | KARAR |
+|---|------|-------|
+| Açık-1 | İş kuyruğu konumu | **Ayrı `pipeline-worker` servisi**: dosya-tabanlı kuyruk (`/corpus/isler`), tek replika, sıralı koşum; api yalnız iş DOSYASI yazar (import yok). Kesinti toparlama worker restart'ıyla. |
+| Açık-2 | Scan/nightly rolü | Yaşam döngüsü **event-driven** (UI olayları yazar); `classify_documents.py` uzlaştırma aracı olarak durur, zincirde ZORUNLU değil. |
+| Açık-3 | Embedding modeli | Mevcut config'teki model **korunur**. Değişiklik istenirse: koleksiyon silinip yeniden kurulmalı (üç taraf hizalı) — yordam `DEPLOY.md` §1'de. |
+| Açık-4 | Panel (lineage) kaderi | **Kapsam dışı**: kod duruyor (facts gibi dormant), compose'a bağlı değil; teşhis log + `durum/` + gecelik raporlarla yürür (`DEPLOY.md` §4). |
+| Açık-5 | Upload üst limitleri | Dosya başına **200 MB** (`MEDRAG_MAX_YUKLEME_MB` ile aşılır), uzantı whitelist'i; istek başına dosya sayısı sınırsız (tek kullanıcı). |
+| Açık-6 | Chat geçmişi saklama | `conversation_log` **kalıcı** (`/logs/conversations` volume'u); okuma ucu `/api/chat/history`, oturum çereziyle; kullanıcı "Yeni sohbet"le ayrılır, eski kayıt diskte kalır. |
 
 ## 7. İzlenebilirlik: beklenti → task
 

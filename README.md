@@ -93,6 +93,18 @@ OpenAI-uyumlu uç nokta); bu makinede model çalıştırılmaz/indirilmez.
 
 ## Hızlı başlangıç
 
+### Docker ile (önerilen — tek komut, tam yığın)
+
+```bash
+cp .env.example .env          # doldur: MEDRAG_SIFRE + LLM/embedding
+docker compose up -d --build  # web + pipeline-worker + pipeline + qdrant
+```
+
+Tarayıcı: `http://localhost:8507`. Detaylar: [`DEPLOY.md`](DEPLOY.md) ·
+günlük kullanım: [`KULLANIM.md`](KULLANIM.md).
+
+### CLI ile (geliştirme / tek aşama)
+
 ```bash
 # Tek dosyayı parse et (scanned PDF dahil)
 python src/medrag/pipeline/parser/scripts/to_markdown.py belge.pdf
@@ -106,7 +118,7 @@ python -m medrag.pipeline.vectorize                  # chunk → embed → Qdran
 medrag-nightly                # scan → parse → chunk → ownership → facts → load → vectorize
 medrag-nightly --from chunk   # belirli aşamadan başla
 
-# Chatbot
+# Chatbot (geliştirme sunucusu)
 python -m medrag.api.webapp   # http://127.0.0.1:8507
 ```
 
@@ -126,24 +138,52 @@ pytest src/ tools/ -q
 python -m pytest src/medrag/tests/test_import_contracts.py   # katman sınırı
 ```
 
-## Yol haritası (tıbbileştirme)
+## Uygulama durumu
 
-1. `chatbot/strategies/doc_question.md` — atfı isteğe bağıl olmaktan çıkarıp
-   **her iddia için zorunlu `doc_id + sayfa + section`** politikası.
-2. `preamble.py` — "bulunamadıysa uydurma" davranışına tıbbi güvenlik notu
-   eklenmesi (doz konularında hekime danışma uyarısı).
-3. Router tablosunun sadeleştirilmesi (neredeyse her şey `default_topn`).
-4. İstemci sözleşmelerinde ACME/ürün kalıntısı içeren prompt'ların gözden
-   geçirilmesi.
+PLAN.md'deki task gruplarının durumu:
+
+- **A — Belge yaşam döngüsü** (upload/silme/değişiklik/durum/iş kuyruğu/notlar):
+  tamamlandı. `POST/GET/DELETE /api/library/documents`, dosya-tabanlı iş
+  kuyruğu + `pipeline-worker`, `durum/` rozetleri, notlar→korpus.
+- **B — Ön yüz** (Vite + React + TS + Tailwind + shadcn/ui): tamamlandı.
+  Login, kütüphane, SSE'li chat, evidence bileşenleri, belge görüntüleyici,
+  notlar modülü, sohbet geçmişi + yeni sohbet.
+- **C — Evidence & prompt** (zorunlu atıf, çelişki politikası, bulunamadı +
+  hekim notu, TR/EN dil politikası, router sadeleştirme): tamamlandı.
+- **D — Tasarım sistemi** (Wada Sanzo fildişi + güneş paleti, açık/koyu
+  tema): tamamlandı.
+- **E — Deploy & operasyon**: compose + volume + gecelik yedek/restore +
+  loglar + auth sertleştirmesi tamam; bkz. [`DEPLOY.md`](DEPLOY.md).
+- **F — Kalite & kabul**: offline suite baseline'da (61 önceden-var-olan
+  fail dışında sıfır regresyon); uçtan uca duman testi
+  `tools/e2e_smoke.py`; dokümantasyon güncel.
+
+## Test
+
+Tüm test paketi **offline**'dır — ağ, model veya API anahtarı gerekmez:
+
+```bash
+pytest src/ tools/ -q
+python -m pytest src/medrag/tests/test_import_contracts.py   # katman sınırı
+```
+
+Çalışan bir stack'e karşı uçtan uca kabul:
+
+```bash
+python tools/e2e_smoke.py --base-url http://localhost:8507 --sample ornek.pdf
+```
 
 ## Deploy (Docker)
 
+Kurulum, yedek/geri yükleme tatbikatı, gözlemlenebilirlik ve güvenlik
+notları için [`DEPLOY.md`](DEPLOY.md)'e bakın. Kısa özet:
+
 ```bash
-docker build --target pipeline -t medrag-pipeline:local .
-docker compose up -d
+cp .env.example .env && docker compose up -d --build
 ```
 
-Servisler: `web` (chat UI, 8507), `pipeline` (gecelik koşunun exec hedefi,
-`sleep infinity`), `qdrant`. Korpus tek bir host dizininde
-(`CORPUS_HOST_DIR` → `/corpus`): serve tarafı `:ro` bağlar, `pipeline` tek
-yazıcıdır.
+Servisler: `web` (SPA + API, 8507), `pipeline-worker` (iş kuyruğu:
+parse→chunk→vectorize), `pipeline` (gecelik koşunun/yedeğin exec hedefi,
+`sleep infinity`), `qdrant`. Korpus tek host dizininde (`CORPUS_HOST_DIR` →
+`/corpus`); `web` ve `pipeline-worker` korpusa okuma-yazma erişir (upload
+API'si bir yazardır).
