@@ -47,6 +47,10 @@ services:
     environment:
       # Qdrant is a real dependency (top_n + evidence).
       QDRANT_URL: http://qdrant:6333
+      # Vektör koleksiyon adı — vectorize config/default.toml'daki
+      # `[qdrant].collection_name` ile birebir aynı olmalı (embedding modeli
+      # değişirse yeniden kurulur; bkz. DEPLOY.md).
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-medrag_chunks_qwen3_8b}
       # Operator override for chunk_store.py (CHUNK_CORPUS_ENV); unset falls
       # back to /app/chunker/storage inside the image -- where there are NO
       # files (.dockerignore excludes `chunker/`), leaving the evidence panel
@@ -145,11 +149,24 @@ services:
       PARSED_OUTPUT_DIR: /corpus/parsed
       ISLER_DIR: /corpus/isler
       DURUM_DIR: /corpus/durum
+      # `run_parse_pipeline._bootstrap()` (worker'ın `_bootstrap_env`'i)
+      # PARSER_DIR'i ZORUNLU env olarak ister (pipeline servisinde var;
+      # eşleşmesi lazım -- yoksa worker kalkışta KeyError ile ölür).
+      PARSER_DIR: /app/src/medrag/pipeline/parser
       # Worker, parse/chunk/vectorize aşamalarını pipeline ile AYNI env
       # üzerinden koşar (bkz. pipeline servisi -- LLM/VLM/embedding değerleri
       # .env'den gelir; parse'a özgü değerler task komutunda verilir).
       CHUNKER_DIR: /corpus/chunker
       CHUNKS_OUTPUT_DIR: /corpus/chunks
+      # Vectorize girdi/çıktı + parser görsel blob deposu -- pipeline
+      # servisindekiyle AYNI olmalı; yoksa vectorize "VECTORIZE_INPUT_DIR
+      # tanımsız" deyip sessizce 0 nokta yazar (belge yine de "ready" görünür
+      # ama hiç embed edilmez -> chat/evidence boş) ve parser görselleri
+      # uçucu /app'e düşer (web /api/images 404).
+      VECTORIZE_INPUT_DIR: /corpus/chunks
+      VECTORIZE_OUTPUT_DIR: /corpus/vectorize
+      STORAGE_IMAGES_DIR: /corpus/storage/images
+      STORAGE_LABELS_DIR: /corpus/storage/labels
       NIGHTLY_BACKUP_ROOT: /corpus/nightly_backups
     depends_on:
       qdrant:

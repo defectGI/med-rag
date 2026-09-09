@@ -9,6 +9,13 @@
 > gözlemlenebilirlik ve auth/upload sertleştirmesi tamam. F: uçtan uca
 > duman testi `tools/e2e_smoke.py` hazır; canlı koşum ilk deploy sonrası
 > yapılacak. Kullanım kılavuzu: `KULLANIM.md`.
+>
+> Not (specs.db): `facts/db/specs.db` repo politikasınca bilerek track
+> edilmez (facts dormant, DATA ballast); listedeki bazı dormant-path
+> testleri (doc_download/comparison/factory) bu dosyanın varlığını bekler.
+> Temiz bir checkout'ta bu testler, dosya facts pipeline'ıyla üretilmedikçe
+> (LLM çıkarımı — ağ/anahtar gerektirir) fail görünür; kalan aktif yollar
+> (default_topn, kütüphane, durum) etkilenmez.
 
 
 ---

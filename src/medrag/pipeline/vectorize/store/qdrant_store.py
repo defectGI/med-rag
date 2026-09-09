@@ -116,11 +116,21 @@ class QdrantVectorStore:
         silme yapılır (kapsamın artık hiç düğümü yoksa, ör. boş doküman)."""
         from qdrant_client.http import models as qm
 
-        self.client.delete(
-            collection_name=self.collection_name,
-            points_selector=qm.FilterSelector(filter=qm.Filter(must=[
-                qm.FieldCondition(key="doc_id", match=qm.MatchValue(value=scope_id))
-            ])))
+        # KRİTİK: boş bir Qdrant'ta ilk işlemede koleksiyon henüz YOK (henüz
+        # `ensure_collection` çağrılmadı); burada `delete` 404 ile ölür ve ilk
+        # yüklenen belge "error"a düşer (med-rag boot bug: ilk kurulumda ilk
+        # belge garanti hata). Koleksiyon yoksa silinecek nokta da yoktur —
+        # silme no-op, yazma akışı zaten `cli.py`'de `ensure_collection` ile
+        # koleksiyonu kurar. `points` doluysa koleksiyon kesin var demektir
+        # (çağıran önce ensure eder); yine de yoksa eksik kurulumu üstteki
+        # silme no-op korur, yazma ise yine 404 verir -- bu, yanlış hizalamayı
+        # "fail loudly" ilkesiyle açığa çıkarır.
+        if self.client.collection_exists(self.collection_name):
+            self.client.delete(
+                collection_name=self.collection_name,
+                points_selector=qm.FilterSelector(filter=qm.Filter(must=[
+                    qm.FieldCondition(key="doc_id", match=qm.MatchValue(value=scope_id))
+                ])))
 
         for i in range(0, len(points), self.upsert_batch_size):
             parca = points[i:i + self.upsert_batch_size]
