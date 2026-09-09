@@ -88,6 +88,11 @@ ENV PATH="/app/.venv/bin:$PATH" \
 COPY --from=builder-serve --chown=app:app /app/.venv /app/.venv
 COPY --from=builder-serve --chown=app:app /app/src /app/src
 COPY --from=builder-serve --chown=app:app /app/packages /app/packages
+# SPA (Vite + React) -- builder-serve'de `/app/web/dist`'e derlenmişti ama
+# runtime bunu kopyalamıyordu: `_dist_dir()` None döner, `webapp.py` eski
+# şablon arayüzüne (ürün asistanı) düşerdi. Med-rag'ın kendi SPA'sı
+# (kütüphane + chat + notlar) bununla servis edilir.
+COPY --from=builder-serve --chown=app:app /app/web /app/web
 
 # Committed reference files (NOT code, DATA that the runtime reads):
 # - facts/db/*.yaml : factory.py's bundled schema fallbacks
