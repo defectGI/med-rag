@@ -10,7 +10,14 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { api, formatBytes, formatDate } from "@/lib/api";
 import type { DocumentItem } from "@/types";
 
-const ACCEPT = ".pdf,.docx,.pptx,.xlsx,.html,.htm,.md,.markdown";
+const ACCEPT = ".pdf,.docx,.pptx,.xlsx,.html,.htm,.md,.markdown,.jpg,.jpeg,.png";
+
+function isImage(file: string): boolean {
+  return /\.(jpe?g|png)$/i.test(file);
+}
+function isPdf(file: string): boolean {
+  return /\.pdf$/i.test(file);
+}
 
 export function LibraryPage({
   documents,
@@ -24,7 +31,8 @@ export function LibraryPage({
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  const [viewer, setViewer] = useState<{ file: string; markdown: string } | null>(null);
+  const [viewer, setViewer] = useState<{ doc_id: string; file: string; markdown: string } | null>(null);
+  const [viewTab, setViewTab] = useState<"md" | "original">("md");
   const [pendingDelete, setPendingDelete] = useState<DocumentItem | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -51,7 +59,8 @@ export function LibraryPage({
   const openViewer = async (doc: DocumentItem) => {
     try {
       const content = await api.documentContent(doc.doc_id);
-      setViewer({ file: content.file_name, markdown: content.markdown });
+      setViewer({ doc_id: doc.doc_id, file: content.file_name, markdown: content.markdown });
+      setViewTab("md");
     } catch {
       toast.error("Ayrıştırılmış içerik henüz yok");
     }
@@ -111,7 +120,7 @@ export function LibraryPage({
           dragOver ? "border-primary bg-primary/5" : "border-border"
         }`}
       >
-        Dosyaları buraya sürükleyip bırakın (PDF, DOCX, PPTX, XLSX, HTML, MD)
+        Dosyaları buraya sürükleyip bırakın (PDF, DOCX, PPTX, XLSX, HTML, MD, JPG, PNG)
       </div>
 
       <div className="overflow-hidden rounded-lg border bg-card">
@@ -179,14 +188,65 @@ export function LibraryPage({
         </table>
       </div>
 
-      {/* Belge görüntüleyici (B7): düzenlenmiş markdown */}
+      {/* Belge görüntüleyici (B7): düzenlenmiş markdown + orijinal (indirmeden) */}
       <Dialog open={viewer !== null} onOpenChange={(o) => !o && setViewer(null)}>
-        <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
-          <DialogTitle className="flex items-center gap-2">
-            <Eye className="h-4 w-4 text-primary" /> {viewer?.file}
-          </DialogTitle>
-          <div className="md-view">
-            <AnswerText text={viewer?.markdown ?? ""} />
+        <DialogContent className="max-h-[85vh] max-w-3xl overflow-hidden p-0">
+          <div className="flex items-center gap-2 border-b px-5 py-3">
+            <Eye className="h-4 w-4 text-primary" />
+            <span className="truncate font-medium">{viewer?.file}</span>
+            <div className="ml-auto flex items-center gap-2">
+              <div className="flex rounded-md border text-sm">
+                <button
+                  className={`px-3 py-1 ${viewTab === "md" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+                  onClick={() => setViewTab("md")}
+                >
+                  İçerik
+                </button>
+                <button
+                  className={`px-3 py-1 ${viewTab === "original" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+                  onClick={() => setViewTab("original")}
+                >
+                  Orijinal
+                </button>
+              </div>
+              {viewer && (
+                <a href={api.documentFileUrl(viewer.doc_id)} download className="inline-flex">
+                  <Button variant="ghost" size="sm">
+                    <FileDown className="h-4 w-4" /> İndir
+                  </Button>
+                </a>
+              )}
+            </div>
+          </div>
+          <div className="max-h-[75vh] overflow-y-auto p-5">
+            {viewTab === "md" ? (
+              <div className="md-view">
+                <AnswerText text={viewer?.markdown ?? ""} />
+              </div>
+            ) : viewer ? (
+              viewer && isPdf(viewer.file) ? (
+                <iframe
+                  src={api.documentFileUrl(viewer.doc_id)}
+                  title={viewer.file}
+                  className="h-[70vh] w-full rounded-md border"
+                />
+              ) : viewer && isImage(viewer.file) ? (
+                <img
+                  src={api.documentFileUrl(viewer.doc_id)}
+                  alt={viewer.file}
+                  className="mx-auto max-h-[70vh] rounded-md border object-contain"
+                />
+              ) : (
+                <div className="flex h-[40vh] flex-col items-center justify-center gap-3 text-muted-foreground">
+                  <p>Bu biçim tarayıcıda gösterilemiyor.</p>
+                  <a href={api.documentFileUrl(viewer.doc_id)} download>
+                    <Button variant="outline">
+                      <FileDown className="h-4 w-4" /> Orijinali indir
+                    </Button>
+                  </a>
+                </div>
+              )
+            ) : null}
           </div>
         </DialogContent>
       </Dialog>

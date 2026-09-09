@@ -596,6 +596,142 @@ def delete_note(note_id: str):
     return delete_document(note_id)
 
 
+# --- notları markdown'a uygun biçimlendir (LLM, A7) -------------------------
+
+_FORMAT_SYSTEM = (
+    "Rol: bir notu Markdown'a uygun biçimlendirmek.\n"
+    "Görev: verilen ham not metninde YALNIZCA biçimlendirme yap; içeriği, "
+    "ifadeleri, sözcükleri ve sırayı HİÇ DEĞİŞTİRME.\n"
+    "Kurallar:\n"
+    "- Uygun yerlerde başlık '# ' / '## ' / '### ', madde listesi '- ' / "
+    "'| ', numaralı liste '1. ' kullan.\n"
+    "- Vurgu için **bold** / *italic*, kod için ```blok```, alıntı için '> ' "
+    "kullan.\n"
+    "- Hiçbir cümle, madde veya bilgi ekleme/silme; yalnız biçimlendirmek için "
+    "sarmala.\n"
+    "- Sadece sonuç Markdown'ı yaz; başka açıklama, karşılama veya yorum ekleme."
+)
+
+
+def _format_note_text(content: str) -> str:
+    """Notu LLM ile biçimlendirir (içerik değişmez, yalnız Markdown yapısı).
+
+    `CHATBOT_LLM_*` yapılandırması kullanılır (chatbot'un kendi modeli).
+    LLM hata verir/yapılandırılmamışsa `ProviderError` yükseltir -- çağıran
+    bunu 502 olarak döndürür. Anthropic native / diğerleri OpenAI-uyumlu
+    `/v1/chat/completions` üzerinden çağrılır.
+    """
+    from medrag.api.answering_model import answering_model_from_env
+    from medrag.core.llm.http import post_json
+
+    messages = [
+        {"role": "system", "content": _FORMAT_SYSTEM},
+        {"role": "user", "content": content or ""},
+    ]
+    am = answering_model_from_env()
+    if am.provider == "anthropic":
+        from medrag.core.llm.anthropic import call_anthropic
+
+        return call_anthropic(
+            messages, model=am.model, base_url=am.base_url,
+            api_key=am.api_key, timeout=am.timeout,
+        ).strip()
+    resp = post_json(
+        f"{am.base_url}/chat/completions",
+        {"model": am.model, "messages": messages},
+        api_key=am.api_key, timeout=am.timeout,
+    )
+    return ((resp.get("choices") or [{}])[0].get("message") or {}).get(
+        "content", "").strip()
+
+
+def _persist_note(note_id: str, content: str) -> str:
+    """Not içeriğini dosyaya yazar + registry hash/scan günceller + process
+    işini kuyruğa atar (A4 değişiklik semantiği). `format` ucu bu ortak
+    yazımı kullanır (update_note'taki mantığın aynısı)."""
+    registry = _registry()
+    belgeler = _belgeler()
+    full = json.loads(registry.read_text(encoding="utf-8"))
+    record = next((r for r in full.get("documents", [])
+                   if r.get("identity", {}).get("doc_id") == note_id), None)
+    if record is None:
+        raise LookupError("not bulunamadı")
+    path = belgeler / record["location"]["rel_path"]
+    if not path.is_file():
+        raise LookupError("not dosyası diskte yok")
+
+    path.write_text(content if content.endswith("\n") else content + "\n",
+                    encoding="utf-8")
+
+    lp = _registry_lock(registry)
+    fd = os.open(lp, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        full = json.loads(registry.read_text(encoding="utf-8"))
+        rec = next((r for r in full.get("documents", [])
+                    if r.get("identity", {}).get("doc_id") == note_id), None)
+        if rec is not None:
+            rec["scan"]["content_hash"] = _sha256_file(path)
+            rec["scan"]["size_bytes"] = path.stat().st_size
+            rec["scan"]["scan_status"] = "MODIFIED"
+            rec["scan"]["last_modified_time"] = datetime.fromtimestamp(
+                path.stat().st_mtime).astimezone().isoformat(timespec="seconds")
+            registry.parent.mkdir(parents=True, exist_ok=True)
+            _atomic_write_json(registry, full)
+    finally:
+        os.close(fd)
+
+    _durum_write(note_id, "queued", detail="kuyrukta",
+                 rel_path=record["location"]["rel_path"])
+    _job_write("process", note_id, record["location"]["rel_path"])
+    return content
+
+
+@bp.post("/api/library/notes/<note_id>/format")
+def format_note(note_id: str):
+    """Notu LLM ile Markdown'a uygun biçimlendirir ve yeniden işler (A7).
+
+    İçerik DEĞİŞMEZ -- yalnız biçimlendirme. Butonla tetiklenen isteğe bağlı
+    bir rafine adımı; hata olursa not olduğu gibi kalır (içerik dosyaya
+    yazılmadan önce LLM çıktısı doğrulanır)."""
+    try:
+        registry = _registry()
+    except _ConfigError as exc:
+        return jsonify({"error": str(exc)}), 503
+    try:
+        record = next((r for r in json.loads(
+            registry.read_text(encoding="utf-8")).get("documents", [])
+            if r.get("identity", {}).get("doc_id") == note_id
+            and r.get("doc_type") == "NOTE"), None)
+    except (OSError, json.JSONDecodeError) as exc:
+        return jsonify({"error": f"registry okunamadı: {exc}"}), 503
+    if record is None:
+        return jsonify({"error": "not bulunamadı"}), 404
+
+    belgeler = _belgeler()
+    path = belgeler / record["location"]["rel_path"]
+    if not path.is_file():
+        return jsonify({"error": "not dosyası diskte yok"}), 404
+
+    current = path.read_text(encoding="utf-8")
+    if not current.strip():
+        return jsonify({"ok": True, "content": current})
+
+    try:
+        formatted = _format_note_text(current)
+    except Exception as exc:  # noqa: BLE001 -- LLM/sağlayıcı hatasını 502'ye çevir
+        logger.warning("not biçimlendirme başarısız (%s): %s", note_id, exc)
+        return jsonify({"error": f"biçimlendirme başarısız: {exc}"}), 502
+    if not formatted:
+        return jsonify({"error": "biçimlendirme boş döndü"}), 502
+
+    try:
+        _persist_note(note_id, formatted)
+    except LookupError as exc:
+        return jsonify({"error": str(exc)}), 404
+    return jsonify({"ok": True, "content": formatted})
+
+
 def _sha256_file(path: Path) -> str:
     import hashlib
 

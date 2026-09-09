@@ -96,6 +96,12 @@ export const api = {
       throw new ApiError(resp.status, (body as { error?: string }).error ?? "kaydedilemedi");
     }
   },
+  async formatNote(noteId: string): Promise<string> {
+    const data = await json_or_error<{ ok: boolean; content: string }>(
+      await fetch(`${BASE}/api/library/notes/${noteId}/format`, { method: "POST" }),
+    );
+    return data.content;
+  },
 
   async history(): Promise<ChatMessage[]> {
     const data = await json_or_error<{

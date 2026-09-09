@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, Plus, Save, StickyNote, Trash2 } from "lucide-react";
+import { ArrowUpRight, Loader2, Plus, Save, StickyNote, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -67,6 +67,21 @@ export function NotesPage({
     }
   };
 
+  const format = async () => {
+    if (!selected) return;
+    setBusy(true);
+    try {
+      const formatted = await api.formatNote(selected.doc_id);
+      setContent(formatted);
+      onChanged();
+      toast.success("Not Markdown'a göre biçimlendirildi");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "biçimlendirilemedi");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="flex h-full gap-4">
       <div className="flex w-72 flex-col gap-2">
@@ -106,6 +121,9 @@ export function NotesPage({
               <Button size="sm" disabled={busy} onClick={() => void save()}>
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 Kaydet
+              </Button>
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => void format()} title="İçeriği değiştirmeden Markdown'a göre biçimlendir">
+                <ArrowUpRight className="h-4 w-4" /> MD Format
               </Button>
               <Button
                 size="sm"
