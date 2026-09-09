@@ -188,3 +188,8 @@ service/.workflow-*.js
 # relocated under /corpus via CHUNK_OWNERSHIP_DIR; a local run drops it here
 # and it MUST NOT be committed.
 src/medrag/pipeline/facts/catalog_chunk_ownership/results/
+
+# med-rag runtime verisi (DEPLOY.md): korpus (yükleme/parse/vectorize/durum)
+# + loglar (bilinçli olarak repo DIŞINDA tutulur; tıbbi veri + sohbet izi).
+korpus/
+loglar/
