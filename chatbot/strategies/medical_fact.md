@@ -67,5 +67,5 @@ never a file-system path, never `doc_id`.
 - `_source_suffix` (answering_model.py) gives the model the
   `doc=/section=/page=` info -- the mandatory citation is written from it.
 - This is the medical continuation of the industrial `doc_question` strategy
-  (PLAN.md C1): citation is mandatory, and the conflict/invention/disclaimer
+  (C1): citation is mandatory, and the conflict/invention/disclaimer
   rules also live in _BASE_PERSONA.

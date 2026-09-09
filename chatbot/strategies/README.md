@@ -65,5 +65,5 @@ is only a summary of the current state, not the source of truth.
 
 The industrial v1 strategies (product_fact, aggregation, doc_question,
 quote_or_contact, recommendation, visual_request, doc_download) were
-archived to [archive/](./archive/) — kept, not deleted (PLAN.md C5).
+archived to [archive/](./archive/) — kept, not deleted.
 

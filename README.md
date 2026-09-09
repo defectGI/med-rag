@@ -140,7 +140,7 @@ python tools/e2e_smoke.py --base-url http://localhost:8507 --sample sample.pdf
 
 ## Status
 
-Task groups in [`PLAN.md`](PLAN.md):
+Work is grouped as follows:
 
 - **A — Document lifecycle** (upload/delete/change/status/queue/notes): done.
 - **B — Frontend** (Vite + React + TS + Tailwind + shadcn/ui): done.
@@ -151,7 +151,7 @@ Task groups in [`PLAN.md`](PLAN.md):
   done. See [`DEPLOY.md`](DEPLOY.md).
 - **F — Quality**: the offline suite runs at its documented baseline; a few
   dormant-path tests (specs.db / text2sql / nightly-report) fail on a clean
-  checkout — see [`PLAN.md`](PLAN.md). `ruff check src tools` and the
+  checkout. `ruff check src tools` and the
   layer-contract tests are green. The smoke test is ready.
 
 ## Deploy

@@ -69,6 +69,6 @@ never a file-system path, never `doc_id`.
   `NotImplementedError` fires only on wrong configuration.
 - `_source_suffix` (answering_model.py) gives the model the `doc=/section=/page=`
   info -- the mandatory citation is written from it.
-- Clinical adaptation (PLAN.md, C1-C4): citation was changed from optional to
+- Clinical adaptation (C1-C4): citation was changed from optional to
   mandatory; the conflict/invention/disclaimer rules were also added to
   _BASE_PERSONA (both layers state the same rule, for consistency).

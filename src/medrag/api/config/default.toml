@@ -10,7 +10,7 @@
 default_flow = "default_topn"
 
 [routing.intents]
-# med-rag medical intent set (PLAN.md C5 + clinical adaptation): the retrieval
+# med-rag medical intent set (C5 + clinical adaptation): the retrieval
 # surface is a single vector path (default_topn); the SQL/spec path (sql_topn)
 # is OFF in this fork, its code remains but is detached from the table.
 # Medical intents differ only in the ANSWER POLICY (safety tier), not in

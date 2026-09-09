@@ -20,7 +20,7 @@ pytest src/ tools/ -q
 
 The test suite is **offline** (no network, model or API key). Some dormant-path
 tests (specs.db / text2sql / nightly-report status strings) carry pre-existing
-failures on a clean checkout; see [`PLAN.md`](PLAN.md). The quality gate that
+failures on a clean checkout. The quality gate that
 must stay green is:
 
 ```bash
