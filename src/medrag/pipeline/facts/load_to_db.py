@@ -60,7 +60,7 @@ from pathlib import Path
 from medrag.core.paths import resolve_specs_db_path
 
 HERE = Path(__file__).resolve().parent  # src/medrag/pipeline/facts/ (code, O-03)
-_REPO_ROOT = HERE.parents[3]  # medrag/ (facts/pipeline/urun/src/<repo>)
+_REPO_ROOT = HERE.parents[3]  # medrag/ (facts/pipeline/medrag/src/<repo>)
 # DATA (db/, results/, queue/) was NOT moved with the code -- O-03 scope
 # was code only; same principle as `discover.py::_FACTS_DATA_ROOT`: lives
 # in `facts/` at the repo root.

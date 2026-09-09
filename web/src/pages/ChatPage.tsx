@@ -23,7 +23,7 @@ export function ChatPage() {
       .history()
       .then((msgs) => setMessages(msgs))
       .catch(() => {
-        // 401 -> oturum düştü; App zaten login ekranına çevirir.
+        // 401 -> session dropped; App already switches to the login screen.
       })
       .finally(() => setHistoryLoaded(true));
   }, []);
@@ -41,8 +41,8 @@ export function ChatPage() {
       await api.reset();
       toast.success("Yeni sohbet başlatıldı");
     } catch {
-      // Sunucu sıfırlayamadıysa bile arayüz temizlendi; bir sonraki mesajda
-      // oturum zaten yeni bir çerezle devam eder.
+      // Even if the server couldn't reset, the UI has been cleared; on the next
+      // message the session just continues with a new cookie.
     }
   }, []);
 

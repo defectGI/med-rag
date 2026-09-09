@@ -1,4 +1,4 @@
-"""CLI entry point: `python -m chatbot "soru" --intent product_fact`.
+"""CLI entry point: `python -m chatbot "arveles dozu" --intent medical_fact`.
 
 There is no `AnsweringModel` yet -- this command does NOT call the answering
 model; it only prints the context gathered by the REAL retrievers that `Router`

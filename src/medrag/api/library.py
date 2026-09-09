@@ -1,33 +1,33 @@
-"""Kütüphane API'si (B3/B4 arka yüzü): belge yükleme, listeleme, silme,
-durum akışı (SSE), içerik/orijinal dosya servisi ve notlar (A7).
+"""Library API (B3/B4 backend): document upload, listing, deletion,
+status streaming (SSE), content/original-file serving and notes (A7).
 
-## Katman yeri
+## Layer placement
 
-`medrag.api` pipeline kodunu import EDEMEZ (katman kuralı + ruff TID251).
-Bu modül pipeline tarafının YAZDIĞI DOSYA SÖZLEŞMELERİYLE çalışır
-(`medrag.pipeline.lifecycle` paketiyle aynı şekiller, ayrı küçük
-implementasyonlar -- bilinçli yineleme, bileşen yinelemeyen tek bağın
-"dosya sistemi" olmasını sağlar):
+`medrag.api` must NOT import pipeline code (layer rule + ruff TID251).
+This module works against the FILE CONTRACTS the pipeline side WRITES
+(same shapes as `medrag.pipeline.lifecycle`, separate small
+implementations -- deliberate duplication, so the single non-duplicated
+link of the component is the "file system"):
 
-  - iş kuyruğu: `ISLER_DIR/<job_id>.json` (jobs sözleşmesi)
-  - durum:      `DURUM_DIR/<doc_id>.json` (durum sözleşmesi)
-  - registry:   `DOCUMENT_NODES_PATH` (şema: classify_documents kayıt
-                şekli; yazımlar `<registry>.lock` flock'uyla)
+  - job queue:    `ISLER_DIR/<job_id>.json` (jobs contract)
+  - status:       `DURUM_DIR/<doc_id>.json` (status contract)
+  - registry:     `DOCUMENT_NODES_PATH` (schema: classify_documents record
+                  shape; writes guarded by `<registry>.lock` flock)
 
-## Yollar (env)
+## Paths (env)
 
-BELGELER_DIR, DOCUMENT_NODES_PATH, PARSED_OUTPUT_DIR zorunlu (eksikse
-ilgili uç 503 döner -- yapılandırma hatası, çökme değil); ISLER_DIR/
-DURUM_DIR varsayılanları korpus kökünün kardeşidir (pipeline tarafıyla
-aynı kural).
+BELGELER_DIR, DOCUMENT_NODES_PATH, PARSED_OUTPUT_DIR are REQUIRED (if missing
+the related endpoint returns 503 -- a configuration error, not a crash);
+ISLER_DIR/DURUM_DIR defaults are siblings of the corpus root (same rule as
+the pipeline side).
 
-## Notlar (A7)
+## Notes (A7)
 
-Notlar `<BELGELER_DIR>/notlar/` altında **.md** dosyalarıdır (parser'ın
-markdown okuyucusundan geçebilsin diye; düz .txt ayrıştırıcıya takılır).
-doc_type=NOTE ile AYNI registry/iş akışına girer -- chatbot onları başka
-bir belgeden farksız kaynak olarak kullanır. Düzenleme = dosyayı yeniden
-yaz + scan hash güncelle + process işi (değişiklik semantiği A4).
+Notes are **.md** files under `<BELGELER_DIR>/notlar/` (so they pass
+through the parser's markdown reader; plain .txt gets caught by the parser).
+With doc_type=NOTE they enter the SAME registry/job workflow -- the chatbot
+uses them as a source no different from any other document. Editing = rewrite
+the file + update scan hash + process job (change semantics A4).
 """
 
 from __future__ import annotations
@@ -47,22 +47,22 @@ from flask import Blueprint, Response, jsonify, request, send_file, stream_with_
 
 logger = logging.getLogger("medrag.api.library")
 
-#: Parser'ın gerçekten okuyabildiği uzantılar (parsers/registry). UI
-#: whitelist'i budur; listede olmayanlar 415 ile reddedilir.
+#: Extensions the parser can actually read (parsers/registry). This is the
+#: UI whitelist; anything not listed is rejected with 415.
 ALLOWED_EXTENSIONS = frozenset(
     {".pdf", ".docx", ".pptx", ".xlsx", ".html", ".htm", ".md", ".markdown",
      ".jpg", ".jpeg", ".png"})
 
-#: Dosya başına üst limit (K16/Açık-5). `MEDRAG_MAX_YUKLEME_MB` ile aşılır.
+#: Per-file upper limit (K16/Open-5). Overridden via `MEDRAG_MAX_YUKLEME_MB`.
 DEFAULT_MAX_UPLOAD_MB = 200
 
-#: Not başlıklarından dosya adı (slug) üretimi için güvenli karakter kümesi.
+#: Safe character set for deriving a file name (slug) from note titles.
 _SLUG_RE = re.compile(r"[^0-9A-Za-zçğıöşüÇĞİÖŞÜ_-]+")
 
 bp = Blueprint("library", __name__)
 
 
-# --- küçük yardımcılar (pipeline tarafıyla paralel sözleşmeler) -------------
+# --- small helpers (parallel contracts with the pipeline side) ---------------
 
 class _ConfigError(RuntimeError):
     pass
@@ -122,7 +122,7 @@ def _atomic_write_json(path: Path, data: dict) -> None:
 
 
 def _registry_lock(registry: Path):
-    """`fslock.file_lock` ile AYNI kilit dosyası (`<registry>.lock`)."""
+    """The SAME lock file as `fslock.file_lock` (`<registry>.lock`)."""
     lp = registry.with_name(registry.name + ".lock")
     lp.parent.mkdir(parents=True, exist_ok=True)
     return lp
@@ -138,7 +138,7 @@ def _registry_load(registry: Path) -> dict:
 
 
 def _job_write(action: str, doc_id: str, rel_path: str) -> str:
-    """`jobs.enqueue` ile AYNI dosya sözleşmesi."""
+    """The SAME file contract as `jobs.enqueue`."""
     jdir = _isler()
     jdir.mkdir(parents=True, exist_ok=True)
     job_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S") + "-" \
@@ -154,8 +154,8 @@ def _job_write(action: str, doc_id: str, rel_path: str) -> str:
 
 def _durum_write(doc_id: str, state: str, detail: str | None = None,
                  rel_path: str | None = None) -> None:
-    """`durum.write_status` ile AYNI dosya sözleşmesi (yalnız api'nin
-    yazdığı `queued` durumu için)."""
+    """The SAME file contract as `durum.write_status` (for the `queued`
+    state that only the api writes)."""
     ddir = _durum()
     ddir.mkdir(parents=True, exist_ok=True)
     _atomic_write_json(ddir / f"{doc_id}.json", {
@@ -182,11 +182,11 @@ def _durum_read_all() -> dict[str, dict]:
     return out
 
 
-# --- kayıt görünümü ----------------------------------------------------------
+# --- record view -------------------------------------------------------------
 
 def _fallback_state(record: dict) -> tuple[str, str | None]:
-    """Durum dosyası yokken registry'den türetilen durum (eski kurulumlar/
-    el ile işlenmiş belgeler için)."""
+    """State derived from the registry when no status file exists (for old
+    setups / manually processed documents)."""
     parse_status = (record.get("parse") or {}).get("status")
     if parse_status in ("SUCCESS", "PARTIAL"):
         return "ready", None
@@ -248,7 +248,7 @@ def _list_documents() -> list[dict]:
     return items
 
 
-# --- uçlar: belgeler ---------------------------------------------------------
+# --- endpoints: documents ----------------------------------------------------
 
 @bp.get("/api/library/documents")
 def list_documents():
@@ -289,7 +289,7 @@ def upload_documents():
                                "reason": f"dosya {max_bytes // (1024 * 1024)} MB sınırını aşıyor"})
             continue
 
-        # Aynı yol üzerine yaz: registry'de MODIFIED (A4 değişiklik semantiği).
+        # Overwrite the same path: MODIFIED in the registry (A4 change semantics).
         hedef = belgeler / name
         hedef.write_bytes(content)
 
@@ -312,7 +312,7 @@ def upload_documents():
 
 def _registry_add_upload(file_path: Path, belgeler: Path, registry: Path,
                          *, doc_type: str, note_title: str | None = None) -> dict:
-    """`registry_rw.add_upload` ile AYNI işlem (kilit + NEW/MODIFIED)."""
+    """The SAME operation as `registry_rw.add_upload` (lock + NEW/MODIFIED)."""
     import hashlib
     from datetime import datetime as _dt
 
@@ -439,7 +439,7 @@ def document_file(doc_id: str):
     except (OSError, json.JSONDecodeError) as exc:
         return jsonify({"error": f"registry okunamadı: {exc}"}), 503
     record = next((r for r in data.get("documents", [])
-                   if r.get("identity", {}).get("doc_id") == doc_id), None)
+                    if r.get("identity", {}).get("doc_id") == doc_id), None)
     if record is None:
         return jsonify({"error": "belge bulunamadı"}), 404
     path = belgeler / (record["location"]["rel_path"])
@@ -448,14 +448,51 @@ def document_file(doc_id: str):
     return send_file(path, download_name=record["identity"]["file_name"])
 
 
-# --- uçlar: durum SSE --------------------------------------------------------
+#: Extensions that can be shown as raw text in the browser (original).
+_RAW_TEXT_EXTENSIONS = frozenset({".md", ".markdown", ".txt", ".html", ".htm"})
+
+
+@bp.get("/api/library/documents/<doc_id>/original")
+def document_original(doc_id: str):
+    """Returns the raw text of the original file (text formats only).
+
+    415 for PDF/image/binary files -- the frontend then falls back to a PDF
+    iframe / <img> image / download."""
+    try:
+        registry = _registry()
+        belgeler = _belgeler()
+    except _ConfigError as exc:
+        return jsonify({"error": str(exc)}), 503
+    try:
+        data = json.loads(registry.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return jsonify({"error": f"registry okunamadı: {exc}"}), 503
+    record = next((r for r in data.get("documents", [])
+                    if r.get("identity", {}).get("doc_id") == doc_id), None)
+    if record is None:
+        return jsonify({"error": "belge bulunamadı"}), 404
+    file_name = record["identity"]["file_name"]
+    ext = Path(file_name).suffix.lower()
+    if ext not in _RAW_TEXT_EXTENSIONS:
+        return jsonify({"error": "bu biçim için ham metin yok"}), 415
+    path = belgeler / (record["location"]["rel_path"])
+    if not path.is_file():
+        return jsonify({"error": "kaynak dosya diskte yok"}), 404
+    try:
+        content = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return jsonify({"error": "dosya metin olarak okunamadı"}), 415
+    return jsonify({"file_name": file_name, "content": content})
+
+
+# --- endpoints: status SSE ---------------------------------------------------
 
 @bp.get("/api/library/events")
 def events():
-    """Durum akışı: `DURUM_DIR` + registry anlık görüntüsü değiştikçe
-    `documents` olayı yayınlanır; 15 sn'de bir yorum-heartbeat (proxy
-    zaman aşımına karşı). 1 sn'lik yoklama tek kullanıcı için yeterli ve
-    ucuzdur (dizin listesi + dosya mtime karşılaştırması)."""
+    """Status stream: as `DURUM_DIR` + the registry snapshot change, a
+    `documents` event is emitted; a comment-heartbeat every 15 s (against
+    proxy timeouts). The 1 s polling is enough and cheap for a single user
+    (directory listing + file mtime comparison)."""
     resp = Response(stream_with_context(_events_stream()), mimetype="text/event-stream")
     resp.headers["Cache-Control"] = "no-cache"
     resp.headers["X-Accel-Buffering"] = "no"
@@ -463,17 +500,17 @@ def events():
 
 
 def _events_stream():
-    """SSE çerçevelerini üreten jeneratör (modül-düzeyi -- test edilebilir).
+    """Generator producing the SSE frames (module-level -- testable).
 
-    Anlık görüntü değiştikçe `event: documents`; aksi halde 15 sn'de bir
-    yorum-heartbeat. `time.sleep` ve `_list_documents` modül-global'leri
-    üzerinden çağrıldığı için testler monkeypatch ile kısaltabilir."""
+    `event: documents` as the snapshot changes; otherwise a comment-heartbeat
+    every 15 s. Since it is called through the module-globals `time.sleep` and
+    `_list_documents`, tests can shorten it with monkeypatch."""
     last_signature = None
     last_beat = 0.0
     while True:
         try:
             docs = _list_documents()
-        except Exception:  # noqa: BLE001 -- yapılandırma eksikliği akışı öldürmesin
+        except Exception:  # noqa: BLE001 -- a configuration gap must not kill the stream
             docs = []
         signature = json.dumps(docs, ensure_ascii=False, sort_keys=True)
         now = time.monotonic()
@@ -488,7 +525,7 @@ def _events_stream():
         time.sleep(1.0)
 
 
-# --- uçlar: notlar -----------------------------------------------------------
+# --- endpoints: notes --------------------------------------------------------
 
 def _slugify(title: str) -> str:
     slug = _SLUG_RE.sub("-", title.strip()).strip("-") or "not"
@@ -565,7 +602,7 @@ def update_note(note_id: str):
     title = (data.get("title") or "").strip()
     if title:
         record.setdefault("note", {})["title"] = title
-    # hash'i yenile + process işi (değişiklik semantiği, A4)
+    # refresh the hash + process job (change semantics, A4)
     lp = _registry_lock(registry)
     fd = os.open(lp, os.O_CREAT | os.O_RDWR, 0o644)
     try:
@@ -596,7 +633,7 @@ def delete_note(note_id: str):
     return delete_document(note_id)
 
 
-# --- notları markdown'a uygun biçimlendir (LLM, A7) -------------------------
+# --- format notes into proper markdown (LLM, A7) -----------------------------
 
 _FORMAT_SYSTEM = (
     "Rol: bir notu Markdown'a uygun biçimlendirmek.\n"
@@ -614,12 +651,12 @@ _FORMAT_SYSTEM = (
 
 
 def _format_note_text(content: str) -> str:
-    """Notu LLM ile biçimlendirir (içerik değişmez, yalnız Markdown yapısı).
+    """Formats the note with the LLM (content unchanged, only Markdown structure).
 
-    `CHATBOT_LLM_*` yapılandırması kullanılır (chatbot'un kendi modeli).
-    LLM hata verir/yapılandırılmamışsa `ProviderError` yükseltir -- çağıran
-    bunu 502 olarak döndürür. Anthropic native / diğerleri OpenAI-uyumlu
-    `/v1/chat/completions` üzerinden çağrılır.
+    Uses the `CHATBOT_LLM_*` configuration (the chatbot's own model).
+    If the LLM errors/is unconfigured it raises `ProviderError` -- the caller
+    returns it as a 502. Anthropic native / others are called via the
+    OpenAI-compatible `/v1/chat/completions`.
     """
     from medrag.api.answering_model import answering_model_from_env
     from medrag.core.llm.http import post_json
@@ -646,9 +683,9 @@ def _format_note_text(content: str) -> str:
 
 
 def _persist_note(note_id: str, content: str) -> str:
-    """Not içeriğini dosyaya yazar + registry hash/scan günceller + process
-    işini kuyruğa atar (A4 değişiklik semantiği). `format` ucu bu ortak
-    yazımı kullanır (update_note'taki mantığın aynısı)."""
+    """Writes the note content to the file + updates the registry hash/scan +
+    enqueues the process job (A4 change semantics). The `format` endpoint uses
+    this common write (the same logic as in update_note)."""
     registry = _registry()
     belgeler = _belgeler()
     full = json.loads(registry.read_text(encoding="utf-8"))
@@ -689,11 +726,11 @@ def _persist_note(note_id: str, content: str) -> str:
 
 @bp.post("/api/library/notes/<note_id>/format")
 def format_note(note_id: str):
-    """Notu LLM ile Markdown'a uygun biçimlendirir ve yeniden işler (A7).
+    """Formats the note into proper Markdown with the LLM and reprocesses it (A7).
 
-    İçerik DEĞİŞMEZ -- yalnız biçimlendirme. Butonla tetiklenen isteğe bağlı
-    bir rafine adımı; hata olursa not olduğu gibi kalır (içerik dosyaya
-    yazılmadan önce LLM çıktısı doğrulanır)."""
+    Content UNCHANGED -- formatting only. An optional refinement step triggered
+    by a button; on error the note stays as-is (the LLM output is validated
+    before the content is written to the file)."""
     try:
         registry = _registry()
     except _ConfigError as exc:
@@ -719,7 +756,7 @@ def format_note(note_id: str):
 
     try:
         formatted = _format_note_text(current)
-    except Exception as exc:  # noqa: BLE001 -- LLM/sağlayıcı hatasını 502'ye çevir
+    except Exception as exc:  # noqa: BLE001 -- convert LLM/provider errors to 502
         logger.warning("not biçimlendirme başarısız (%s): %s", note_id, exc)
         return jsonify({"error": f"biçimlendirme başarısız: {exc}"}), 502
     if not formatted:

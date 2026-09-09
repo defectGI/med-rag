@@ -21,7 +21,7 @@ export default function App() {
       setDocuments(docs);
       setNotes(nts);
     } catch {
-      // 401 -> oturum düşmüş
+      // 401 -> session dropped
       setAuthed(false);
     }
   }, []);
@@ -70,9 +70,9 @@ export default function App() {
         }}
       />
       <main className="flex-1 overflow-y-auto p-5">
-        {/* Üç görünüm de her zaman mount kalır; etkin olmayanlar CSS'le
-            gizlenir. Koşullu render (&&) unmount yapıp sohbet mesajlarını ve
-            yazılmakta olan not taslağını kaybettiriyordu (sekme geçişi). */}
+        {/* All three views stay mounted at all times; inactive ones are hidden
+            via CSS. Conditional rendering (&&) was unmounting them and losing
+            the chat messages and the note draft being written (tab switch). */}
         <div className={cn("h-full", view !== "library" && "hidden")}>
           <LibraryPage
             documents={documents}

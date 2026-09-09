@@ -395,7 +395,7 @@ class RecommendationFlow:
                         on_trace("recommendation_slot_chosen", chosen)
                     if chosen is not None:
                         return chosen
-            except Exception as exc:  # noqa: BLE001 -- bkz. docstring: kirlenmeden dus
+            except Exception as exc:  # noqa: BLE001 -- see docstring: fall through without breaking
                 if on_trace:
                     on_trace("recommendation_slot_selection_failed", str(exc)[:200])
 

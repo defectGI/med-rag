@@ -66,8 +66,8 @@ _SESSION_COOKIE = "chatbot_session"
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 
-#: SPA derlemesi (`web/dist`). `MEDRAG_WEB_DIST` ile aşılabilir; bulunamazsa
-#: eski şablon arayüzü sunulur (geliştirme ortamı için geri dönüş).
+#: SPA build (`web/dist`). Overridable via `MEDRAG_WEB_DIST`; if not found
+#: the old template UI is served (fallback for the dev environment).
 _DIST_ENV = "MEDRAG_WEB_DIST"
 
 
@@ -101,8 +101,8 @@ def create_app() -> Flask:
     # (idempotent) so that path is logged as well.
     configure_logging_from_cfg(cfg)
 
-    # Tek kullanıcı şifresi (K3) + kütüphane API'si (A1/A5/A7): SPA ve
-    # /api/chat uçları aynı uygulamada, tek origin'de yaşar.
+    # Single-user password (K3) + the library API (A1/A5/A7): the SPA and
+    # /api/chat endpoints live in the same app, on a single origin.
     configure_auth(app)
     app.register_blueprint(library_bp)
     # Detailed per-conversation logging -- a channel SEPARATE from [logging],
@@ -218,8 +218,8 @@ def create_app() -> Flask:
 
     @app.get("/<path:subpath>")
     def spa_fallback(subpath: str):
-        """SPA catch-all: bilinen dosya uzantıları 404 olur (yanlış asset
-        yolu), diğerleri index.html'e düşer (istemci tarafı gezinme)."""
+        """SPA catch-all: known file extensions 404 (wrong asset path), the
+        rest fall through to index.html (client-side navigation)."""
         dist = _dist_dir()
         if dist is None or "." in Path(subpath).name:
             return jsonify({"error": "bulunamadı"}), 404
@@ -370,10 +370,10 @@ def create_app() -> Flask:
 
     @app.post("/api/reset")
     def reset():
-        """"Yeni sohbet": RAM hafızasını ve oturum durumunu temizler ve
-        oturum çerezini YENİLER -- böylece eski turlar kalıcı günlükte
-        (conversation_log) denetim izi olarak DURUR ama yeni sohbet boş
-        başlar (sayfa yenilense bile geçmiş geri gelmez)."""
+        """"New chat": clears the RAM memory and the session state and
+        RENEWS the session cookie -- so old turns REMAIN in the persistent log
+        (conversation_log) as an audit trail but the new chat starts empty
+        (history does not come back even if the page is refreshed)."""
         session_id = request.cookies.get(_SESSION_COOKIE)
         if session_id:
             memory.clear(session_id)
@@ -384,10 +384,10 @@ def create_app() -> Flask:
 
     @app.get("/api/chat/history")
     def chat_history():
-        """Sohbet geçmişi (B5): `chatbot_session` çerezinden oturum çözülür,
-        `conversation_log` günlüğünden turlar okunur ve SPA'nın beklediği
-        mesaj listesine çevrilir. Çerez yoksa / günlük yoksa boş liste --
-        kayıt bozuksa o tur atlanır, diğerleri döner."""
+        """Chat history (B5): the session is resolved from the `chatbot_session`
+        cookie, turns are read from the `conversation_log` log and converted to
+        the message list the SPA expects. No cookie / no log -> empty list;
+        if a record is corrupt that turn is skipped, the others return."""
         session_id = request.cookies.get(_SESSION_COOKIE)
         if not session_id:
             return jsonify({"messages": []})

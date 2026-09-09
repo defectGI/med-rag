@@ -1,198 +1,193 @@
-# med-rag — Geliştirme Planı
+# med-rag — Development Plan
 
-> Durum: UYGULAMA TAMAMLANDI (Grup A, B, C, D + E; F kabul aşamasında).
-> Tam suite baseline'da: 2105 passed / 61 önceden-var-olan fail (fork
-> baseline'ı) / sıfır regresyon; frontend `npm run build` yeşil; ruff yeni
-> kodda temiz. B5 (sohbet geçmişi + yeni sohbet) tamamlandı. E grubu:
-> compose (web + pipeline-worker + pipeline + qdrant), okuma-yazma volume
-> şeması, gecelik yedek + geri yükleme prosedürü (`DEPLOY.md` §3.1),
-> gözlemlenebilirlik ve auth/upload sertleştirmesi tamam. F: uçtan uca
-> duman testi `tools/e2e_smoke.py` hazır; canlı koşum ilk deploy sonrası
-> yapılacak. Kullanım kılavuzu: `KULLANIM.md`.
+> Status: IMPLEMENTATION COMPLETE (groups A, B, C, D + E; F in acceptance).
+> Full suite at baseline: 2105 passed / 61 pre-existing failures (fork baseline) / zero
+> regressions; frontend `npm run build` green; ruff clean on new code. B5 (chat history +
+> new chat) complete. Group E: compose (web + pipeline-worker + pipeline + qdrant),
+> read-write volume scheme, nightly backup + restore procedure (`DEPLOY.md` §3.1),
+> observability and auth/upload hardening complete. F: the end-to-end smoke test
+> `tools/e2e_smoke.py` is ready; the live run happens after first deploy. User manual:
+> `USAGE.md`.
 >
-> Not (specs.db): `facts/db/specs.db` repo politikasınca bilerek track
-> edilmez (facts dormant, DATA ballast); listedeki bazı dormant-path
-> testleri (doc_download/comparison/factory) bu dosyanın varlığını bekler.
-> Temiz bir checkout'ta bu testler, dosya facts pipeline'ıyla üretilmedikçe
-> (LLM çıkarımı — ağ/anahtar gerektirir) fail görünür; kalan aktif yollar
-> (default_topn, kütüphane, durum) etkilenmez.
-
+> Note (specs.db): by repo policy `facts/db/specs.db` is deliberately not tracked (facts is
+> dormant, DATA ballast); some dormant-path tests (doc_download/comparison/factory) expect
+> this file to exist. On a clean checkout those tests fail unless the file is produced by the
+> facts pipeline (LLM inference — needs a network/key); the remaining active paths
+> (default_topn, library, status) are unaffected.
 
 ---
 
-## 1. Vizyon
+## 1. Vision
 
-Ablanın (hekim) yükleyeceği tıbbi belgelerden — dijital PDF, taranmış/foto PDF
-ve diğer ofis formatları — **kanıt (evidence) göstererek** cevap veren, kendi
-kendine büyüyen bir doküman asistanı. Kullanıcı dosya ekledikçe sistem büyür,
-dosya silindiğinde türevleri temizlenir, dosya değiştiğinde eski bilgi düşüp
-yenisi işlenir. Arayüz Wada Sanzo paletinden fildişi + güneş tonlarıyla,
-shadcn/ui üzerine kurulu modern bir SPA'dır.
+A self-growing document assistant that answers from the clinical documents a physician
+uploads — digital PDF, scanned/photo PDF and other office formats — **showing evidence**.
+The system grows as files are added, cleans up derivations when a file is deleted, and drops
+old information when a file changes. The UI is a modern SPA built on shadcn/ui with the Wada
+Sanzo ivory + sun palette (light/dark themes).
 
-### Kapsam dışı (non-goals)
+### Non-goals
 
-- WhatsApp / harici mesajlaşma entegrasyonu (fork'ta zaten söküldü)
-- Çok kullanıcılılık, rol yönetimi
-- facts/specs.db + text2sql yolunun aktifleştirilmesi (kod duruyor, kullanılmıyor)
-- Mobil native uygulama (responsive web yeterli)
+- WhatsApp / external messaging integration (already removed in the fork)
+- Multi-user support, role management
+- Activating the facts/specs.db + text2sql path (the code is dormant, unused)
+- Native mobile app (a responsive web is enough)
 
-## 2. Alınmış Kararlar (soruların cevapları)
+## 2. Decisions taken (answers to the open questions)
 
-| # | Konu | Karar |
-|---|------|-------|
-| K1 | Kurulum | Kullanıcının evindeki makinede, **Coolify** ile deploy |
-| K2 | Dosya girişi | **UI'dan yükleme** (sürükle-bırak / çoklu seçim); izlenen klasör YOK |
-| K3 | Kullanıcı | Tek kullanıcı + **basit şifre** (login ekranı, oturum çerezi) |
-| K4 | Dil | **Tam karışık** TR/EN belge + soru; cevap sorunun dilinde |
-| K5 | Ölçek | **Büyük: 500+ belge** — artımlılık, maliyet kontrolü ve durum takibi kritik |
-| K6 | Dosya tipleri | Parser'ın desteklediği **tümü** (PDF, DOCX, PPTX, XLSX, HTML, MD) |
-| K7 | LLM | Mevcut **sağlayıcı-bağımsız mimari** korunur; kullanımda **bulut modelleri** |
-| K8 | Ön yüz | **Vite + React + TypeScript + Tailwind + shadcn/ui**; backend API Flask kalır |
-| K9 | Tema | **Açık + koyu** tema toggle'ı; CSS değişkeni tabanlı |
-| K10 | Palet | Wada Sanzo: **fildişi zemin + güneş tonları** (sarı/turuncu/kızıl vurgular) |
-| K11 | UI kapsamı | **Kütüphane + chat + notlar + belge gezinme** (aşağıda detay) |
-| K12 | Notlar | Kullanıcının oluşturduğu/düzenlediği **txt notlar da korpusa girer**, chatbot onları kaynak olarak kullanır |
-| K13 | Belge inceleme | **Düzenlenmiş, kullanıcı-dostu Markdown render** (ham değil; Claude-artifacts hissi) + "orijinali gör" ile PDF |
-| K14 | Evidence | **Hem satır içi rozetler hem toplanmış kaynak listesi**; atıf zorunlu |
-| K15 | Çelişki/güvenlik | Çelişen kaynaklar **ikisi de + uyarı**; bulunamadıysa **"bulamadım"**; tıbbi cevapların altında kısa **"hekime danışın"** notu |
-| K16 | İşleme durumu | Kütüphanede dosya başına **durum rozeti** (kuyrukta → işleniyor → hazır/hata), sayfa bazlı ilerleme |
-| K17 | Yedekleme | **Gecelik otomatik**: korpus + notlar + Qdrant snapshot (orijinal backup mantığı uyarlanır) |
+| # | Topic | Decision |
+|---|---|---|
+| K1 | Install | Deploy on the user's home machine with **Coolify** |
+| K2 | File input | **Upload from the UI** (drag-and-drop / multi-select); NO watched folder |
+| K3 | User | Single user + **simple password** (login screen, session cookie) |
+| K4 | Language | **Fully mixed** TR/EN documents + questions; answers in the question's language |
+| K5 | Scale | **Large: 500+ documents** — incremental processing, cost control and status tracking are critical |
+| K6 | File types | **All that the parser supports** (PDF, DOCX, PPTX, XLSX, HTML, MD) |
+| K7 | LLM | Keep the **provider-agnostic** architecture; **cloud models** in use |
+| K8 | Frontend | **Vite + React + TypeScript + Tailwind + shadcn/ui**; backend stays Flask API |
+| K9 | Theme | **Light + dark** toggle; CSS-variable based |
+| K10 | Palette | Wada Sanzo: **ivory ground + sun tones** (yellow/orange/red accents) |
+| K11 | UI scope | **Library + chat + notes + document navigation** (detailed below) |
+| K12 | Notes | User-created/edited **text notes enter the corpus too**; the chatbot cites them as sources |
+| K13 | Document review | **Rendered, user-friendly Markdown** (not raw; Claude-artifacts feel) + "view original" for the PDF |
+| K14 | Evidence | **Both inline badges and a collected source list**; citation mandatory |
+| K15 | Conflict/safety | Conflicting sources **both shown + warning**; if not found **"I couldn't find that"**; short **"consult a clinician"** note under clinical answers |
+| K16 | Processing status | Per-file **status badge** in the library (queued → processing → ready/error), page-based progress |
+| K17 | Backup | **Automatic nightly**: corpus + notes + Qdrant snapshot (original backup logic adapted) |
 
-## 3. Mimari (hedef)
+## 3. Architecture (target)
 
 ```
-┌───────────────────────────── Ev makinesi / Coolify ─────────────────────────────┐
+┌───────────────────────────── Home machine / Coolify ─────────────────────────────┐
 │                                                                                 │
-│  ┌───────────────┐   REST + SSE    ┌──────────────┐   iş kuyruğu    ┌─────────┐ │
+│  ┌───────────────┐   REST + SSE    ┌──────────────┐   job queue     ┌─────────┐ │
 │  │ web (SPA)     │ ◄─────────────► │ api (Flask)  │ ──────────────► │ pipeline│ │
-│  │ Vite+React    │                 │ auth, upload │   (dosya tabanlı│ worker  │ │
-│  │ shadcn/ui     │                 │ status, chat │    basit kuyruk)│ parse→  │ │
+│  │ Vite+React    │                 │ auth, upload │   (simple file- │ worker  │ │
+│  │ shadcn/ui     │                 │ status, chat │   based queue)  │ parse→  │ │
 │  └───────────────┘                 └──────┬───────┘                 │ chunk→  │ │
 │                                           │                         │ vector  │ │
 │                                    ┌──────▼──────┐                  └────┬────┘ │
 │                                    │   qdrant    │◄─────────────────────┘      │
 │                                    └─────────────┘                             │
-│  /corpus (birim): BELGELER/ notlar/ parsed/ chunks/ vectorize/ yedekler/        │
+│  /corpus (single unit): BELGELER/ notes/ parsed/ chunks/ vectorize/ yedekler/    │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-İlkeler:
+Principles:
 
-1. **Event-driven registry**: `document_nodes.json` artık klasör taramasıyla
-   değil, **UI olaylarıyla** (upload/delete/edit-note) yazılır. Mevcut
-   `classify_documents.py` (scan) bir defalık uzlaştırma (reconciliation)
-   aracı olarak kalır; nightly zincirinde ZORUNLU değildir.
-2. **Dosya yaşam döngüsü = tek kaynak**: upload → (parse → chunk → vectorize);
-   değişiklik → eski türevlerin silinmesi + yeniden işleme; silme → tüm
-   türevlerin silinmesi. Bu üçü tek "belge işLEYİCİ" soyutlamasında toplanır.
-3. **Ön yüz ve API ayrımı**: Flask yalnız JSON + SSE servis eder; şablon arayüzü
-   (webapp.py'deki HTML tarafı) kademeli olarak emekliye ayrılır.
-4. **Maliyet farkındalığı**: 500+ belge ölçeğinde her upload ayrı işlenir;
-   toplu yeniden işlemeye giren hiçbir kod yolu "tüm korpus"u varsayılan
-   yapmaz.
+1. **Event-driven registry**: `document_nodes.json` is no longer produced by a folder
+   scan but written by **UI events** (upload/delete/edit-note). The existing
+   `classify_documents.py` (scan) stays as a one-off reconciliation tool; it is NOT
+   required in the nightly chain.
+2. **File lifecycle = single source of truth**: upload → (parse → chunk → vectorize);
+   change → delete old derivations + reprocess; delete → remove all derivations. These
+   three are gathered into a single "document processor" abstraction.
+3. **Frontend/API separation**: Flask serves only JSON + SSE; the template UI (the HTML
+   side in webapp.py) is phased out gradually.
+4. **Cost awareness**: at 500+ document scale each upload is processed individually; no
+   code path falls back to reprocessing "the whole corpus" by default.
 
-## 4. Task Grupları
+## 4. Task groups
 
-### Grup A — Belge yaşam döngüsü ve pipeline tetikleme (çekirdek)
+### Group A — Document lifecycle and pipeline triggering (core)
 
-| ID | Task | Kabul kriteri |
+| ID | Task | Acceptance criterion |
 |----|------|---------------|
-| A1 | **Upload API**: `POST /api/documents` (çoklu dosya, tip/boyut kontrolü, isim çakışması çözümü). Dosya `/corpus/BELGELER/`e yazılır, registry'e `NEW` kaydı düşer, iş kuyruğuna girer. | Çoklu yükleme; geçersiz tip reddi; aynı isimde `-1` türetme; registry tutarlı |
-| A2 | **Tek-dosya pipeline koşucu**: mevcut parse→chunk→vectorize aşamalarının tek `doc_id` üzerinde çalıştırılması (mevcut `--doc`/incremental kapıları kullanılır). VLM yoğun taranmış PDF'lerde sayfa bazlı ilerleme state'e yazılır. | Tek dosya upload'ı diğerlerini işlemez; ilerleme % sayfa bazlı okunabilir |
-| A3 | **Silme**: `DELETE /api/documents/{id}` → `forget_deleted_source` mantığı uyarlanır: parsed klasörü, chunk'lar, Qdrant noktaları, registry kaydı temizlenir. | Silinen dosyanın hiçbir izi (chunk/vektör/kütüphane satırı) kalmaz |
-| A4 | **Değişiklik**: aynı rel_path ile yeniden upload (content_hash farklı) → eski türevler silinir (A3 yolu), yeni işleme (A2) tetiklenir. "Eski hali silinmiş + yeni hali eklenmiş" semantiği. | Değişen dosyada eski chunk'lara chat cevabı veremez; yeni içerik bulunur |
-| A5 | **Durum deposu + API**: dosya başına `queued/parsing(%)/chunking/vectorizing/ready/error(+sebep)` durumu; `GET /api/documents` ve `GET /api/documents/{id}/status` + SSE akışı. | Rozet verisi API'den okunabilir; hata durumunda insan-okur sebep |
-| A6 | **İş kuyruğu**: redis'siz basit mekanizma — api içi **sınırlı iş parçacığı havuzu** (öneri: max 2 eşzamanlı, tek VLM'yi dolaşan sıra). Uzun taranmış PDF'lerde iptal desteği. | İki eşzamanlı upload sıralanır; api restart'ta "queued" işler yeniden keşfedilir (kesinti toparlama) |
-| A7 | **Notlar → korpus**: `notlar/` dizini txt notları için aynı yaşam döngüsüne bağlanır (doc_type=NOTE). Not kaydedilince eski chunk'ları silinip yenileri vektöre yazılır. | Not düzenleme sonrası chat o notun yeni halini kaynak gösterir |
+| A1 | **Upload API**: `POST /api/documents` (multi-file, type/size check, name-collision resolution). The file is written to `/corpus/BELGELER/`, a `NEW` record is added to the registry, and it enters the job queue. | Multi-upload; invalid type rejected; same-name `-1` derivation; registry consistent |
+| A2 | **Single-file pipeline runner**: run the existing parse→chunk→vectorize stages over one `doc_id` (using the existing `--doc`/incremental gates). Page-based progress is written to state for VLM-heavy scanned PDFs. | A single-file upload does not process the others; progress readable per page % |
+| A3 | **Delete**: `DELETE /api/documents/{id}` → adapt `forget_deleted_source`: clean the parsed folder, chunks, Qdrant points and the registry record. | No trace of the deleted file (chunk/vector/library row) remains |
+| A4 | **Change**: re-upload the same rel_path (different content_hash) → old derivations deleted (A3 path), new processing (A2) triggered. Semantics: "old version deleted + new version added". | Chat cannot answer from old chunks of a changed file; new content is found |
+| A5 | **Status store + API**: per-file `queued/parsing(%)/chunking/vectorizing/ready/error(+reason)`; `GET /api/documents` and `GET /api/documents/{id}/status` + SSE stream. | Badge data readable from the API; human-readable reason on error |
+| A6 | **Job queue**: a redis-less simple mechanism — a **bounded thread pool inside the api** (suggestion: max 2 concurrent, serializing around the single VLM). Cancel support on long scanned PDFs. | Two concurrent uploads are serialized; on api restart "queued" jobs are re-discovered (interruption recovery) |
+| A7 | **Notes → corpus**: the `notlar/` directory hooks into the same lifecycle for text notes (doc_type=NOTE). On note save, old chunks are deleted and new ones written to vectors. | After editing a note, chat cites the note's new version |
 
-### Grup B — Ön yüz (Vite + React + shadcn/ui)
+### Group B — Frontend (Vite + React + shadcn/ui)
 
-| ID | Task | Kabul kriteri |
+| ID | Task | Acceptance criterion |
 |----|------|---------------|
-| B1 | **Scaffold**: Vite + React + TS + Tailwind + shadcn/ui; klasör yapısı `web/`; Flask'ın `/` altında statik servis etmesi (tek origin, CORS yok) | `docker compose up` ile SPA açılır |
-| B2 | **Tema sistemi**: Wada Sanzo paleti CSS değişkenleri (E grubu), açık/koyu toggle (localStorage + `prefers-color-scheme`) | İki temada da WCAG AA kontrast |
-| B3 | **Login ekranı** (K3): tek şifre, httpOnly oturum çerezi, uçtan uca auth middleware | Şifresiz her API 401 döner |
-| B4 | **Kütüphane görünümü**: belge listesi (ad, tip, tarih, boyut, durum rozeti), sürükle-bırak çoklu yükleme, silme (onaylı), hata detayı gösterimi, arama/filtre | K16 rozetleri canlı güncellenir (SSE) |
-| B5 | **Chat görünümü**: mesaj akışı, streaming cevap (SSE), sohbet geçmişi kalıcılığı, yeni sohbet | Sayfa yenilenince geçmiş durur; akış kanıta kadar canlı |
-| B6 | **Evidence bileşenleri** (K14/K15): satır içi `[n]` rozetleri, cevap sonu numaralı kaynak listesi (belge + sayfa + bölüm), rozete tıklayınca ilgili kaynağa kaydırma, çelişki uyarı kutusu, "hekime danışın" dipnotu | Tıbbi cevapsız atıf üretilemez; çelişki örneğinde uyarı görünür |
-| B7 | **Belge görüntüleyici** (K13): `react-markdown` + typography/pretty-render (tablo, kod, liste, başlık hiyerarşisi), sayfa referansı çapaları, "orijinali gör" (pdf.js / tarayıcı gömülü viewer) | Taranan kitap bölümü okunabilir biçimde render olur; evidence tıklaması ilgili bölüme götürür |
-| B8 | **Notlar modülü**: not listesi, oluştur/düzenle/sil (basit metin editörü), kaydet → A7 tetiklenir, "chat'e dahil" durumu görünür | Not düzenlemesi ~çevrimiçi görünür süreçte vektöre işlenir |
-| B9 | **API istemcisi + tipler**: tip güvenli fetch katmanı, SSE yardımcıları, hata/toast standartları | Tek yerden API sürümleme |
+| B1 | **Scaffold**: Vite + React + TS + Tailwind + shadcn/ui; folder layout `web/`; Flask serves it statically under `/` (single origin, no CORS) | SPA opens with `docker compose up` |
+| B2 | **Theme system**: Wada Sanzo palette via CSS variables (group E), light/dark toggle (localStorage + `prefers-color-scheme`) | WCAG AA contrast in both themes |
+| B3 | **Login screen** (K3): single password, httpOnly session cookie, end-to-end auth middleware | Every password-less API returns 401 |
+| B4 | **Library view**: document list (name, type, date, size, status badge), drag-and-drop multi-upload, delete (confirmed), error detail, search/filter | K16 badges update live (SSE) |
+| B5 | **Chat view**: message flow, streaming answer (SSE), chat-history persistence, new chat | History survives a page refresh; the stream is live up to the evidence |
+| B6 | **Evidence components** (K14/K15): inline `[n]` badges, numbered source list after the answer (document + page + section), badge click scrolls to the source, conflict warning box, "consult a clinician" footnote | No citation-free clinical answer; warning visible in a conflict example |
+| B7 | **Document viewer** (K13): `react-markdown` + typography/pretty-render (tables, code, lists, heading hierarchy), page-reference anchors, "view original" (pdf.js / browser-embedded viewer) | A scanned book section renders readably; evidence click goes to the relevant section |
+| B8 | **Notes module**: note list, create/edit/delete (simple text editor), save → triggers A7, "included in chat" status visible | A note edit is vectorized within a roughly online process |
+| B9 | **API client + types**: type-safe fetch layer, SSE helpers, error/toast standards | Single place for API versioning |
 
-### Grup C — Evidence & prompt katmanı (tıbbileştirme)
+### Group C — Evidence & prompt layer (clinical adaptation)
 
-| ID | Task | Kabul kriteri |
+| ID | Task | Acceptance criterion |
 |----|------|---------------|
-| C1 | **doc_question stratejisi yeniden yazımı**: atıf isteğe bağlılıktan çıkarılır — her olgusal iddia için zorunlu `doc_id + sayfa + bölüm` atfı | Strategi prompt'u ve ilgili şablonlar güncellenir; örnek cevaplar kurala uyar |
-| C2 | **Çelişki politikası**: aynı olgu için farklı değer veren chunk'larda ikisini de göster + "kaynaklar farklı bilgi veriyor" uyarısı; model tek değer uyduramaz | Sentetik çelişki korpunda test edilir |
-| C3 | **Bulunamadı + disclaimer**: kaynak yoksa uydurma yasak ("bulamadım" + öneri); tıbbi nitelikli her cevabın sonuna kısa hekim-danışma notu (K15) | Boş retrieval'da disclaimer'sız sahte cevap üretilemez |
-| C4 | **Dil politikası** (K4): soru diliyle cevap; TR/EN karışık chunk'larda terim sadakati (İngilizce tıbbi terim + Türkçe açıklama) | TR soruya TR cevap; EN kaynak alıntısı korunur |
-| C5 | **Router sadeleştirme**: neredeyse tüm intent'ler `default_topn`'e; kullanılmayan strateji prompt'ları arşivlenir (silinmez) | Router tablosu config'te gözden geçirilmiş |
+| C1 | **doc_question strategy rewrite**: citation is no longer optional — every factual claim carries a mandatory `doc_id + page + section` attribution | Strategy prompt and the relevant templates updated; sample answers obey the rule |
+| C2 | **Conflict policy**: for chunks that give different values of the same fact, show both + a "sources report different information" warning; the model cannot invent a single value | Tested on a synthetic conflict corpus |
+| C3 | **Not found + disclaimer**: when there is no source, invention is forbidden ("I couldn't find that" + suggestion); a short clinician-consult note at the end of every clinical answer (K15) | A fake answer without a disclaimer cannot be produced on empty retrieval |
+| C4 | **Language policy** (K4): answer in the question's language; on mixed TR/EN chunks keep term fidelity (English medical term + Turkish explanation) | TR question → TR answer; EN source quotation preserved |
+| C5 | **Router simplification**: nearly all intents go to `default_topn`; unused strategy prompts are archived (not deleted) | Router table reviewed in config |
 
-### Grup D — Tasarım sistemi (Wada Sanzo: fildişi + güneş)
+### Group D — Design system (Wada Sanzo: ivory + sun)
 
-| ID | Task | Kabul kriteri |
+| ID | Task | Acceptance criterion |
 |----|------|---------------|
-| D1 | **Palet token'ları**: Wada Sanzo'dan fildişi zemin ailesi (örn. Gofun/Torinoko krem hattı) + güneş vurguları (Yamabuki sarısı, Kaki turuncusu, koyu kızıl); shadcn CSS değişkenleri (primary/secondary/accent/destructive/muted/ring) | Palet tablosu PLAN'da hex değerleriyle listelenir; shadcn temasına uygulanır |
-| D2 | **Koyu tema eşlemesi**: aynı hue'ların koyu zemin karşılıkları (Sumi mürekkep zemin + sıcak vurgular) | Koyu temada vurgular aynı kimliği taşır |
-| D3 | **Bileşen cilası**: durum rozetleri, evidence kutuları, toast, boş-durum (empty state) ekranları paletle uyumlu | Tüm sayfalar tek tasarım dilinde |
+| D1 | **Palette tokens**: ivory-ground family from Wada Sanzo (e.g. the Gofun/Torinoko cream line) + sun accents (Yamabuki yellow, Kaki orange, dark red); shadcn CSS variables (primary/secondary/accent/destructive/muted/ring) | Palette table listed with hex values in PLAN; applied to the shadcn theme |
+| D2 | **Dark theme mapping**: dark-ground counterparts of the same hues (Sumi ink ground + warm accents) | The accents carry the same identity in dark mode |
+| D3 | **Component polish**: status badges, evidence boxes, toast, empty-state screens aligned with the palette | All pages share one design language |
 
-> D1 palet taslağı (hex'ler uygulama sırasında kalibre edilir):
-> `--background` fildişi `#FAF6EE` · `--foreground` mürekkep `#2B2926` ·
+> D1 palette sketch (hexes calibrated during implementation):
+> `--background` ivory `#FAF6EE` · `--foreground` ink `#2B2926` ·
 > `--primary` Yamabuki `#E8A020` · `--accent` Kaki `#D96C2C` ·
-> `--secondary` çay yeşili muadili nötr `#8C8473` · `--destructive` kızıl `#B3352C`.
-> Koyu: zemin `#201D1A`, kart `#2A2622`, aynı vurgular açık tonlarda.
+> `--secondary` neutral tea-green equivalent `#8C8473` · `--destructive` red `#B3352C`.
+> Dark: ground `#201D1A`, card `#2A2622`, same accents in lighter tones.
 
-### Grup E — Deploy & operasyon
+### Group E — Deploy & operations
 
-| ID | Task | Kabul kriteri |
+| ID | Task | Acceptance criterion |
 |----|------|---------------|
-| E1 | **Compose güncellemesi**: `web` (SPA statik + nginx veya Flask statik), `api`, `pipeline-worker` (A6 iş parçacıkları api'de ise api ile birleşir — karar noktası), `qdrant`. Coolify uyumlu env/volume tanımları | Sıfırdan `docker compose up -d` çalışır |
-| E2 | **Volume şeması**: `/corpus` tek yazıcı düzeni upload API'sine göre güncellenir (api artık YAZICI — `:ro` kuralı gözden geçirilir); ayrıcalıklar uid 1000 ile uyumlu | Upload sonrası pipeline ve api aynı dosyayı görür |
-| E3 | **Gecelik yedek** (K17): korpus + notlar + Qdrant snapshot → `/corpus/yedekler/`; mevcut `nightly_backup` mantığı uyarlanır; geri yükleme prosedürü yazılır | Yedekten geri yükleme tatbikatı başarılı |
-| E4 | **Gözlemlenebilirlik**: upload/işleme olayları log; panel (lineage) med-rag akışına uyarlanır ya da kapsamdan çıkar (karar noktası) | Hatalı belge logdan teşhis edilebilir |
-| E5 | **Güvenlik sertleştirme**: tek şifre + oturum; upload boyut limiti; uzantı whitelist; ev ağı dışına açmama notları (Coolify/reverse proxy) | Şifresiz erişim ve büyük dosya DoS kapalı |
+| E1 | **Compose update**: `web` (SPA static + nginx or Flask static), `api`, `pipeline-worker` (if A6 threads are in the api it merges with api — decision point), `qdrant`. Coolify-compatible env/volume definitions | `docker compose up -d` works from scratch |
+| E2 | **Volume scheme**: `/corpus` single-writer layout updated for the upload API (api is now a WRITER — review the `:ro` rule); permissions compatible with uid 1000 | After upload, pipeline and api see the same file |
+| E3 | **Nightly backup** (K17): corpus + notes + Qdrant snapshot → `/corpus/yedekler/`; adapt the existing `nightly_backup` logic; write the restore procedure | Restore-from-backup drill succeeds |
+| E4 | **Observability**: upload/processing events logged; the panel (lineage) is adapted to the med-rag flow or dropped from scope (decision point) | A failing document is diagnosable from logs |
+| E5 | **Security hardening**: single password + session; upload size limit; extension whitelist; notes on not exposing outside the home network (Coolify/reverse proxy) | Unauthenticated access and large-file DoS are closed |
 
-### Grup F — Kalite & kabul
+### Group F — Quality & acceptance
 
-| ID | Task | Kabul kriteri |
+| ID | Task | Acceptance criterion |
 |----|------|---------------|
-| F1 | **Mevcut offline suite korunur**: baseline 61 önceden-var-olan fail dışında yeni fail YOK; import-linter sözleşmeleri güncel | `pytest src/ tools/ -q` fork baseline'ında kalır |
-| F2 | **Uçtan uca kabul senaryosu**: yükle → durum izle → hazır → soru sor → atıflı cevap → kaynağa tıkla → belge görüntüleyici açılır → not ekle → not kaynaklı cevap → dosyayı sil → derhal cevabı kaybolur | Senaryonun tamamı el ile koşulur ve kayda geçer |
-| F3 | **Değişiklik/silme testleri**: A3/A4'ün synthetic corpus üzerinde otomatik testleri | Otomatik testler yeşil |
-| F4 | **Parser kalite ölçümü**: `tools/benchmark` ile taranmış PDF örneklemi puanlanır (tıbbi tablolar/doz satırları odaklı scope dosyası) | Doz tablosu örneklerinde tablo bütünlüğü doğrulanır |
-| F5 | **Dokümantasyon**: README + CONFIG.md yeni mimariye göre güncellenir; kullanıcıya 1 sayfalık kullanım kılavuzu | Yeni kullanıcı kurulumdan kullanıma self-servis |
+| F1 | **Existing offline suite kept**: no NEW failures beyond the baseline 61 pre-existing ones; import-linter contracts up to date | `pytest src/ tools/ -q` stays at the fork baseline |
+| F2 | **End-to-end acceptance scenario**: upload → watch status → ready → ask → cited answer → click source → document viewer opens → add note → note-sourced answer → delete file → answer disappears immediately | The whole scenario is run manually and recorded |
+| F3 | **Change/delete tests**: automated tests of A3/A4 on a synthetic corpus | Automated tests green |
+| F4 | **Parser quality measurement**: `tools/benchmark` scores a scanned-PDF sample (scope file focused on medical tables/dose lines) | Table integrity verified on dose-table examples |
+| F5 | **Documentation**: README + CONFIG.md updated to the new architecture; a 1-page user manual | New users self-serve from install to use |
 
-## 5. Uygulama sırası (önerilen)
+## 5. Suggested implementation order
 
-1. **A1→A6** (belge yaşam döngüsü + durum) — çekirdek değeri taşır
-2. **C1→C5** (evidence katmanı) — chatbot zaten mevcut olduğundan erken kazanım
-3. **B1+B2+D1→D3** (SPA iskeleti + tema) → **B4** (kütüphane) → **B5+B6** (chat+evidence)
-4. **B7** (görüntüleyici) → **B8** (notlar, A7 ile birlikte)
-5. **E1→E5** (deploy/backup sertleştirme) → **F2** (uçtan uca kabul)
+1. **A1→A6** (document lifecycle + status) — carries the core value
+2. **C1→C5** (evidence layer) — early win since the chatbot already exists
+3. **B1+B2+D1→D3** (SPA skeleton + theme) → **B4** (library) → **B5+B6** (chat+evidence)
+4. **B7** (viewer) → **B8** (notes, together with A7)
+5. **E1→E5** (deploy/backup hardening) → **F2** (end-to-end acceptance)
 
-## 6. Açık Karar Noktaları (uygulama sırasında netleşir)
+## 6. Open decision points (clarified during implementation)
 
-| # | Konu | KARAR |
+| # | Topic | DECISION |
 |---|------|-------|
-| Açık-1 | İş kuyruğu konumu | **Ayrı `pipeline-worker` servisi**: dosya-tabanlı kuyruk (`/corpus/isler`), tek replika, sıralı koşum; api yalnız iş DOSYASI yazar (import yok). Kesinti toparlama worker restart'ıyla. |
-| Açık-2 | Scan/nightly rolü | Yaşam döngüsü **event-driven** (UI olayları yazar); `classify_documents.py` uzlaştırma aracı olarak durur, zincirde ZORUNLU değil. |
-| Açık-3 | Embedding modeli | Mevcut config'teki model **korunur**. Değişiklik istenirse: koleksiyon silinip yeniden kurulmalı (üç taraf hizalı) — yordam `DEPLOY.md` §1'de. |
-| Açık-4 | Panel (lineage) kaderi | **Kapsam dışı**: kod duruyor (facts gibi dormant), compose'a bağlı değil; teşhis log + `durum/` + gecelik raporlarla yürür (`DEPLOY.md` §4). |
-| Açık-5 | Upload üst limitleri | Dosya başına **200 MB** (`MEDRAG_MAX_YUKLEME_MB` ile aşılır), uzantı whitelist'i; istek başına dosya sayısı sınırsız (tek kullanıcı). |
-| Açık-6 | Chat geçmişi saklama | `conversation_log` **kalıcı** (`/logs/conversations` volume'u); okuma ucu `/api/chat/history`, oturum çereziyle; kullanıcı "Yeni sohbet"le ayrılır, eski kayıt diskte kalır. |
+| Open-1 | Job-queue location | **Separate `pipeline-worker` service**: file-based queue (`/corpus/isler`), single replica, sequential run; the api only WRITES the job file (no import). Interruption recovery via worker restart. |
+| Open-2 | Scan/nightly role | Lifecycle is **event-driven** (UI events write); `classify_documents.py` stays as a reconciliation tool, NOT required in the chain. |
+| Open-3 | Embedding model | The model in the current config is **kept**. If a change is wanted: delete and recreate the collection (three sides aligned) — procedure in `DEPLOY.md` §1. |
+| Open-4 | Panel (lineage) fate | **Out of scope**: the code remains (dormant like facts), not wired to compose; diagnosis uses logs + `durum/` + nightly reports (`DEPLOY.md` §4). |
+| Open-5 | Upload upper limits | **200 MB** per file (overridable via `MEDRAG_MAX_YUKLEME_MB`), extension whitelist; file count per request unlimited (single user). |
+| Open-6 | Chat-history storage | The `conversation_log` is **persistent** (`/logs/conversations` volume); read endpoint `/api/chat/history`, tied to the session cookie; the user leaves with "new chat", old records stay on disk. |
 
-## 7. İzlenebilirlik: beklenti → task
+## 7. Traceability: expectation → task
 
-| Kullanıcı beklentisi | Task |
+| User expectation | Task |
 |----------------------|------|
-| "dosya ekledikçe corpus büyüyecek, pipeline tetiklenir" | A1, A2, A6, B4 |
-| "dosya çıkartmada türevler silinir" | A3 |
-| "değişen dosya = eski sil + yeni ekle" | A4 |
-| "wada sanzo renkleri, shadcn, renkli kombinasyon" | D1–D3, B2 |
-| "kütüphane + chat + notlar + belge gezinme" | B4, B5, B7, B8, A7 |
-| "kullanıcı-dostu markdown render" | B7 |
-| "evidence her cevapta kritik" | C1–C3, B6 |
-| "basit şifre" | B3, E5 |
-| "coolify ile ev makinesinde" | E1, E2 |
-| "gecelik yedek" | E3 |
+| "corpus grows as files are added, pipeline triggers" | A1, A2, A6, B4 |
+| "deleting a file removes its derivations" | A3 |
+| "changed file = delete old + add new" | A4 |
+| "wada sanzo colors, shadcn, colorful combination" | D1–D3, B2 |
+| "library + chat + notes + document navigation" | B4, B5, B7, B8, A7 |
+| "user-friendly markdown render" | B7 |
+| "evidence critical in every answer" | C1–C3, B6 |
+| "simple password" | B3, E5 |
+| "deploy on a home machine with coolify" | E1, E2 |
+| "nightly backup" | E3 |

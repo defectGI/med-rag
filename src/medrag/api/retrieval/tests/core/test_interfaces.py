@@ -45,10 +45,10 @@ def test_run_sync_rejects_running_loop():
 
 
 def test_intent_result_accepts_label():
-    res = IntentResult(label=IntentLabel.PRODUCT_FACT, confidence=0.9)
-    assert res.label is IntentLabel.PRODUCT_FACT
-    assert res.label.value == "product_fact"
+    res = IntentResult(label=IntentLabel.MEDICAL_FACT, confidence=0.9)
+    assert res.label is IntentLabel.MEDICAL_FACT
+    assert res.label.value == "medical_fact"
 
 
-def test_intent_label_has_nine_classes():
-    assert len(list(IntentLabel)) == 9
+def test_intent_label_has_six_classes():
+    assert len(list(IntentLabel)) == 6

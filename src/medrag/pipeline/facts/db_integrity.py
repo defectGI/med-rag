@@ -40,7 +40,7 @@ from pathlib import Path
 import yaml
 
 HERE = Path(__file__).resolve().parent  # src/medrag/pipeline/facts/
-_REPO_ROOT = HERE.parents[3]  # medrag/ (facts/pipeline/urun/src/<repo>)
+_REPO_ROOT = HERE.parents[3]  # medrag/ (facts/pipeline/medrag/src/<repo>)
 DEFAULT_SCHEMA_YAML_PATH = _REPO_ROOT / "facts" / "db" / "schema.yaml"
 
 # See the NOTE in the module docstring.

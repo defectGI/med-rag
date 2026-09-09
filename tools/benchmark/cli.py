@@ -33,7 +33,7 @@ from pathlib import Path
 
 # Repo root = grandparent of this package (repo_root/tools/benchmark/cli.py).
 # `tools/` is a real installed package now (D-46/D-62, pyproject.toml
-# include=["urun*", "tools*"]) — no sys.path bootstrap needed to import
+# include=["medrag*", "tools*"]) — no sys.path bootstrap needed to import
 # `tools.benchmark.*`; run this as `python -m tools.benchmark ...`, not as a
 # bare script.
 _HERE = Path(__file__).resolve().parent          # the benchmark/ package dir

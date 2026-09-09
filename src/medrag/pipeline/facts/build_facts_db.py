@@ -77,7 +77,7 @@ from medrag.pipeline.facts.spec_keys import (
 )
 
 _FACTS_ROOT = Path(__file__).resolve().parent  # src/medrag/pipeline/facts/ (code)
-_REPO_ROOT = Path(__file__).resolve().parents[4]  # medrag/ (facts/pipeline/urun/src/<repo>)
+_REPO_ROOT = Path(__file__).resolve().parents[4]  # medrag/ (facts/pipeline/medrag/src/<repo>)
 # DATA did not move with the code (O-03 scope: code only) -- specs.db /
 # schema_rag.sql still live in `facts/db/` at the repo root (same principle
 # as discover.py's `_FACTS_DATA_ROOT`).

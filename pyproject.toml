@@ -10,7 +10,33 @@ build-backend = "setuptools.build_meta"
 # (below).
 name = "medrag"
 version = "0.1.0"
+description = "Medical document RAG assistant: evidence-cited answers from PDFs, images, tables and office documents (Qdrant + provider-agnostic LLM)."
+readme = "README.md"
 requires-python = ">=3.11"
+license = { text = "MIT" }
+license-files = ["LICENSE"]
+authors = [{ name = "Mehmet Kaan Durupunar" }]
+keywords = [
+    "rag",
+    "pdf",
+    "document-parsing",
+    "chatbot",
+    "medical",
+    "qdrant",
+    "ollama",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+[project.urls]
+Homepage = "https://github.com/defectgi/med-rag"
+Repository = "https://github.com/defectgi/med-rag"
+Documentation = "https://github.com/defectgi/med-rag#readme"
 # "base" group -- three packages that every subproject
 # (parser/chunker/vectorize/api/benchmark) used to declare separately now live
 # here once. Versions were derived from the existing 13 requirements/pyproject
@@ -145,9 +171,9 @@ include = ["medrag*", "tools*"]
 # (api/pipeline/worker) either. worker/ does not exist yet -- the ban is in
 # place so it is ready when it is added.
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
-"medrag.pipeline".msg = "api/ pipeline'i import etmez; bağ DB ve dosya sistemidir"
-"medrag.api".msg = "pipeline/ api'yi import etmez"
-"medrag.worker".msg = "core/ worker'ı import etmez"
+"medrag.pipeline".msg = "api must not import pipeline; the coupling is the DB and the filesystem"
+"medrag.api".msg = "pipeline must not import api"
+"medrag.worker".msg = "core must not import worker"
 
 [tool.ruff.lint.per-file-ignores]
 "src/medrag/pipeline/*" = ["TID251"]
@@ -169,11 +195,11 @@ root_package = "medrag"
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
-name = "api/pipeline bağımsızlığı"
+name = "api/pipeline independence"
 type = "independence"
 modules = ["medrag.api", "medrag.pipeline"]
 
 [[tool.importlinter.contracts]]
-name = "core en altta katman sırası"
+name = "core at the bottom layer"
 type = "layers"
 layers = ["medrag.api | medrag.pipeline", "medrag.core"]

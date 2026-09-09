@@ -1,8 +1,9 @@
-# Strategy: doc_question
+# Strategy: medical_fact
 
-**Intent:** `doc_question`
-**Meaning:** a question whose answer is in the document text (disease
-information, mechanisms, procedures, drug information, dosages, notes).
+**Intent:** `medical_fact`
+**Meaning:** a factual question whose answer is in the uploaded medical
+documents: a drug's dose/indication/contraindication/side effect, a disease
+definition, a mechanism, a guideline recommendation.
 
 This is the PRIMARY strategy of med-rag: a physician asking her own
 uploaded library. The non-negotiable rule of this strategy:
@@ -13,7 +14,7 @@ Every factual claim you write -- a disease fact, a mechanism, a dose, an
 interval, a contraindication, a figure -- MUST carry an inline citation,
 written in the USER'S LANGUAGE, e.g.:
 
-- Turkish: `(Kaynak: Nelson_Pediatri.pdf, s. 412)`
+- Turkish: `(Kaynak: ARVELES_KUB.pdf, s. 3)`
 - English: `(Source: Nelson_Pediatri.pdf, p. 412)`
 
 The file name and page come from the `doc=`/`page=` info attached to the
@@ -49,26 +50,22 @@ individual patient context.`
 - If the question is about the document itself ("hangi belgede", "nerede
   geçiyor"): answer with the document name (+ section/page) directly.
 - If the question is about CONTENT: answer the content first; citations
-  ride along with the claims per the mandatory-evidence rule above -- do
-  not dump one citation per sentence when one sentence covers several
-  claims from the same source, cite once at the end of that passage.
+  ride along with the claims per the mandatory-evidence rule above.
 - If multiple chunks from the same document describe one topic, merge
-  them into ONE consistent answer and cite the strongest span (cite both
-  pages if the claims span pages).
+  them into ONE consistent answer and cite the strongest span.
 
 This strategy only ever cites `file name`/section/page as the source,
 never a file-system path, never `doc_id`.
 
 <!-- CHATBOT:DEV-NOTES (modele gitmez) -->
 
-## Geliştirici Notları
+## Developer Notes
 
 **Flow:** `default_topn`
 
-- `retrieval.modules.top_n` gerçek retriever'dır; bu flow Qdrant üzerinden
-  çalışır. `NotImplementedError` yalnız yanlış yapılandırmada tetiklenir.
-- `_source_suffix` (answering_model.py) modele `doc=/section=/page=`
-  bilgiyi verir -- zorunlu atıf bu bilgiyle yazılır.
-- Tıbbileştirme (PLAN.md, C1-C4): atıf isteğe bağlılıktan zorunluluğa
-  çevrildi; çelişki/uydurma/disclaimer kuralları _BASE_PERSONA'ya da
-  eklendi (iki katman aynı kuralı söyler, tutarlılık için).
+- `retrieval.modules.top_n` is the real retriever; it runs over Qdrant.
+- `_source_suffix` (answering_model.py) gives the model the
+  `doc=/section=/page=` info -- the mandatory citation is written from it.
+- This is the medical continuation of the industrial `doc_question` strategy
+  (PLAN.md C1): citation is mandatory, and the conflict/invention/disclaimer
+  rules also live in _BASE_PERSONA.

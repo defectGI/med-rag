@@ -1,31 +1,33 @@
-"""N-02 (I-11): `medrag-nightly`'nin kosu kilidi.
+"""N-02 (I-11): the run lock of `medrag-nightly`.
 
-Ayni anda IKI gece kosusu calisamaz -- ikinci tetiklenen REDDEDILIR (bekleme
-kuyrugu YOK, basit tutulur -- gorev metninin acik tercihi). Kilit dosya
-tabanlidir (tek makine, Redis'e gerek yok): PID + baslama zamani tasir.
-Kilidi tutan surec `kill -9` ile olse bile bir sonraki cagri kilidi kalici
-SANMAZ -- `psutil.pid_exists()` ile PID'in hala yasadigini dogrular; PID
-artik yoksa kilit STALE sayilir ve devralinir (TTL YOK, tek kaynak PID
-canliligidir -- bu, "sure dolunca serbest kalsin" yerine "sahibi gercekten
-olu mu" sorusuna dogrudan cevap verdigi icin tercih edildi).
+Two nightly runs cannot run at the same time -- the second one triggered is
+REJECTED (no wait queue, kept simple -- the task text's explicit preference).
+The lock is file-based (single machine, no Redis needed): it carries the
+PID + start time. Even if the process holding the lock dies via `kill -9`,
+the next call does NOT assume the lock is permanent -- it verifies the PID is
+still alive with `psutil.pid_exists()`; if the PID is gone the lock is STALE
+and is taken over (NO TTL, the only source is PID liveness -- this was
+preferred because it answers "is the owner really dead?" directly instead of
+"let it go when the duration expires").
 
-`os.kill(pid, 0)` KULLANILMAZ: Windows'ta CPython'in `os.kill()` uygulamasi
-sinyal 0'i da `TerminateProcess`e cevirir (bkz. CPython `nt_kill`) -- yani
-"yasiyor mu" diye sormak yanlislikla surecin KENDISINI oldurebilir. Bunun
-yerine `psutil.pid_exists()` kullanilir: hicbir sinyal GONDERMEZ, salt PID
-tablosunu okur, her platformda guvenlidir.
+`os.kill(pid, 0)` is NOT used: on Windows CPython's `os.kill()` also maps
+signal 0 to `TerminateProcess` (see CPython `nt_kill`) -- so asking "is it
+alive" could accidentally kill the process ITSELF. Instead `psutil.pid_exists()`
+is used: it sends no signal, only reads the PID table, and is safe on every
+platform.
 
-2026-08-27 fix (`_is_stale`): kilit dosyasi konteynerli dagitimda kalici bir
-yola (`NIGHTLY_LOCK_PATH=/corpus/...`) tasindiginda "tek makine" varsayimi
-artik tam dogru degil -- redeploy AYNI host'ta YENI bir konteyner (YENI PID
-namespace'i) yaratir, eski kilitteki `pid` sayisi yeni konteynerde TAMAMEN
-ALAKASIZ (ama gercekten canli) bir surece denk gelebilir, `psutil.pid_exists()`
-yanlis-pozitif doner. Coz: kilidi yazan `hostname` bizimkiyle FARKLIYSA
-(`socket.gethostname()`, Docker'da konteyner kimligi) PID'e HIC bakilmadan
-STALE sayilir -- bu dagitimda `pipeline` TEK REPLIKA ve butun stack birlikte
-redeploy edildigi icin bu KESIN bir sinyal (TTL tahmini DEGIL). Ayni konteyner
-icinde (testler, tek-host senaryo) hostname hep ayni kalir, davranis eskisiyle
-BIREBIR ayni.
+2026-08-27 fix (`_is_stale`): when the lock file moved to a persistent path
+(`NIGHTLY_LOCK_PATH=/corpus/...`) in containerized deployments, the "single
+machine" assumption is no longer fully right -- a redeploy creates a NEW
+container (a NEW PID namespace) on the SAME host, and the `pid` number in the
+old lock can match a COMPLETELY UNRELATED (but genuinely alive) process in the
+new container, so `psutil.pid_exists()` returns a false positive. Fix: if the
+`hostname` that wrote the lock/with the lock differs from ours
+(`socket.gethostname()`, the container id in Docker), the PID is declared STALE
+WITHOUT even looking at it -- in this deployment `pipeline` is a SINGLE REPLICA
+and the whole stack is redeployed together, so this is a CERTAIN signal (NOT a
+TTL guess). Within the same container (tests, a single-host scenario) the
+hostname always stays the same and the behavior is IDENTICAL to before.
 """
 
 from __future__ import annotations
@@ -44,15 +46,15 @@ DEFAULT_LOCK_PATH = Path(tempfile.gettempdir()) / "medrag-nightly.lock"
 
 
 def _lock_path() -> Path:
-    """`NIGHTLY_LOCK_PATH` env degiskeni ile override edilebilir (testler ve
-    dagitim ortami icin) -- yoksa sistem gecici dizininde sabit bir dosya."""
+    """Overridable via the `NIGHTLY_LOCK_PATH` env var (for tests and the
+    deployment environment) -- else a fixed file in the system temp dir."""
     raw = os.environ.get("NIGHTLY_LOCK_PATH")
     return Path(raw) if raw else DEFAULT_LOCK_PATH
 
 
 class NightlyLockHeld(RuntimeError):
-    """Baska bir `medrag-nightly` kosusu zaten calisiyor -- REDDET (I-11'in
-    karari; bekleme kuyrugu yok)."""
+    """Another `medrag-nightly` run is already running -- REJECT (I-11's
+    decision; no wait queue)."""
 
 
 def _read_lock(path: Path) -> dict | None:
@@ -67,29 +69,29 @@ def _is_alive(pid: object) -> bool:
 
 
 def _is_stale(existing: dict) -> bool:
-    """2026-08-27 fix: konteynerli dagitimda kilit dosyasi kalici bir yola
-    (`/corpus`) tasindiginda, `pid` KENDI konteynerimizin PID namespace'ine
-    ait olmayabilir -- redeploy sonrasi YENI bir konteyner sifirdan PID
-    sayar, eski kilitteki numara (ornegin 7) yeni konteynerde TAMAMEN
-    ALAKASIZ bir surece denk gelip "hala calisiyor" yanilgisina yol acabilir
-    (canli testle risk dogrulandi degil, kod okumasiyla tespit edildi).
+    """2026-08-27 fix: when the lock file moved to a persistent path (`/corpus`)
+    in containerized deployments, the `pid` may not belong to our own container's
+    PID namespace -- after a redeploy a NEW container counts PIDs from scratch, so
+    the number in the old lock (e.g. 7) can correspond to a COMPLETELY UNRELATED
+    process in the new container and cause a "still running" false positive
+    (risked with a live test: not validated, spotted by code reading).
 
-    Duzeltme: kilidi yazan `hostname` (zaten kayitli) bizim su anki
-    `socket.gethostname()`imizle AYNI DEGILSE, farkli bir konteyner
-    nesline ait demektir -- bu dagitimda `pipeline` TEK REPLIKA ve butun
-    stack birlikte redeploy edildigi icin bu KESIN bir sinyal (TTL tahmini
-    degil): eski konteyner artik yok, PID'e hic bakmaya gerek yok. Ayni
-    konteyner icinde (testler, tek-host senaryo) hostname hep ayni kalir --
-    davranis eskisiyle BIREBIR ayni (`_is_alive(pid)`), geriye donuk uyumlu."""
+    Fix: if the `hostname` that wrote the lock (already recorded) differs from our
+    current `socket.gethostname()`, it belongs to a different container
+    generation -- in this deployment `pipeline` is a SINGLE REPLICA and the whole
+    stack is redeployed together, so this is a CERTAIN signal (not a TTL guess):
+    the old container is gone, no need to look at the PID. Within the same
+    container (tests, single-host scenario) the hostname always stays the same --
+    behavior is IDENTICAL to before (`_is_alive(pid)`), backward-compatible."""
     if existing.get("hostname") != socket.gethostname():
         return True
     return not _is_alive(existing.get("pid"))
 
 
 class NightlyLock:
-    """Context manager: `with NightlyLock():` -- kilit alinamiyorsa
-    `NightlyLockHeld` firlatir. `path` verilmezse `_lock_path()` (env
-    degiskeni ya da sistem gecici dizini) kullanilir."""
+    """Context manager: `with NightlyLock():` -- raises `NightlyLockHeld` if the
+    lock cannot be taken. If `path` is not given, `_lock_path()` (env var or the
+    system temp dir) is used."""
 
     def __init__(self, path: Path | str | None = None):
         self.path = Path(path) if path is not None else _lock_path()
@@ -108,10 +110,10 @@ class NightlyLock:
                     "REDDEDILDI (bekleme kuyrugu yok, I-11)")
             print(f"medrag-nightly: eski kilit STALE (pid={pid}, "
                   f"host={existing.get('hostname')}) -- devraliniyor")
-        # write-then-replace: bir yaris durumunda (iki surec ayni anda
-        # acquire cagirirsa) sonuncu yazan kazanir -- tek makine icin kabul
-        # edilebilir basitlik (gorev metninin "basit tut" tercihi); gercek
-        # coklu-makine coordinasyonu Redis kilidi gerektirirdi, kapsam disi.
+        # write-then-replace: in a race condition (two processes calling acquire
+        # at the same time) the last writer wins -- acceptable simplicity for a
+        # single machine (the task text's "keep it simple" preference); real
+        # multi-machine coordination would need a Redis lock, out of scope.
         fd, tmp_name = tempfile.mkstemp(dir=str(self.path.parent), prefix=".tmp_lock_")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -133,9 +135,9 @@ class NightlyLock:
         if not self._acquired:
             return
         current = _read_lock(self.path)
-        # Yalniz KENDI kilidimizi sileriz -- release() cagrilana kadar baska
-        # bir surec kilidi STALE sayip devralmis olabilir, o zaman onun
-        # kilidini silmek yanlis olur.
+        # We only delete OUR OWN lock -- by the time release() is called another
+        # process may have declared it STALE and taken it over, and deleting
+        # that process's lock would be wrong.
         if current is not None and current.get("pid") == os.getpid():
             try:
                 self.path.unlink()

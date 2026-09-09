@@ -10,7 +10,7 @@ function isImage(file: string): boolean {
 function isPdf(file: string): boolean {
   return /\.pdf$/i.test(file);
 }
-/** Sayfa fragment'ı: PDF tarayıcı yerleşik görüntüleyicide `#page=N` atlar. */
+/** Page fragment: jumps to `#page=N` in the browser's built-in PDF viewer. */
 function fileUrl(docId: string, isPdfFile: boolean, page?: string): string {
   const base = api.documentFileUrl(docId);
   if (isPdfFile && page) return `${base}#page=${parseInt(page, 10) || 1}`;
@@ -18,9 +18,9 @@ function fileUrl(docId: string, isPdfFile: boolean, page?: string): string {
 }
 
 /**
- * Kanıt görüntüleyici: tıklanan kanıtın SADECE o parçasını ve orijinalde aynı
- * sayfa/bölümünü gösterir (indirmeden). PDF -> gömülü `#page=N`, görsel -> img,
- * diğerleri -> parça metni + orijinali aç.
+ * Evidence viewer: shows ONLY that part of the clicked evidence and the same
+ * page/section in the original (without downloading). PDF -> embedded `#page=N`,
+ * image -> img, others -> snippet text + open original.
  */
 export function EvidenceViewer({
   chunk,

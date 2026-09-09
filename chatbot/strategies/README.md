@@ -49,19 +49,21 @@ strategy files do NOT duplicate them.
 - **One intent, one file.** Each strategy runs independently; changing
   one should not require touching another.
 
-## Files (9 intents, v1)
+## Files (6 medical intents, med-rag)
 
 | Intent | File | Current flow |
 |--------|-------|--------------|
-| product_fact | [product_fact.md](./product_fact.md) | `sql_topn` |
-| aggregation | [aggregation.md](./aggregation.md) | `aggregation` (sql_topn core xN) |
-| doc_question | [doc_question.md](./doc_question.md) | `default_topn` |
-| comparison | [comparison.md](./comparison.md) | `comparison` (sql_topn core xN, N=product count) |
-| recommendation | [recommendation.md](./recommendation.md) | `recommendation` (clarification + sql_topn core) |
-| visual_request | [visual_request.md](./visual_request.md) | `sql_topn` |
-| doc_download | [doc_download.md](./doc_download.md) | `doc_download` (deterministic `document` table query) |
-| quote_or_contact | [quote_or_contact.md](./quote_or_contact.md) | `default_topn` |
+| medical_fact | [medical_fact.md](./medical_fact.md) | `default_topn` |
+| clinical_decision | [clinical_decision.md](./clinical_decision.md) | `default_topn` |
+| comparison | [comparison.md](./comparison.md) | `default_topn` |
+| interaction | [interaction.md](./interaction.md) | `default_topn` |
+| library | [library.md](./library.md) | `default_topn` |
 | out_of_scope | [out_of_scope.md](./out_of_scope.md) | `no_retrieval` |
 
 The mapping is defined in `config/default.toml` `[routing]`; this table
 is only a summary of the current state, not the source of truth.
+
+The industrial v1 strategies (product_fact, aggregation, doc_question,
+quote_or_contact, recommendation, visual_request, doc_download) were
+archived to [archive/](./archive/) — kept, not deleted (PLAN.md C5).
+

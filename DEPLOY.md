@@ -1,189 +1,197 @@
-# med-rag — Deploy & Operasyon Kılavuzu
+# med-rag — Deploy & Operations Guide
 
-> Hedef: ev makinesinde (Coolify ya da düz docker compose) **bu gece**
-> çalışır bir kurulum. Kurulum → yedek → geri yükleme → güvenlik, hepsi bu
-> dosyada. Ortam değişkenlerinin tam kataloğu [`CONFIG.md`](CONFIG.md)'de,
-> kullanım kılavuzu [`KULLANIM.md`](KULLANIM.md)'dedir.
+> Goal: a running installation **tonight** on a home machine (via Coolify or plain
+> `docker compose`). Setup → backup → restore → security are all in this file. The full
+> environment-variable catalogue is in [`CONFIG.md`](CONFIG.md); the user manual is
+> [`USAGE.md`](USAGE.md).
 
-## 1. Hızlı kurulum (docker compose)
+> **Naming note:** some runtime directory and variable names are Turkish (a legacy of the
+> original project). They are preserved so an existing deployment keeps working:
+> `korpus/` = corpus, `loglar/` = logs, `BELGELER/` = source documents, `durum/` = status,
+> `isler/` = job queue, `yedekler/` = backups, `MEDRAG_SIFRE` = password,
+> `MEDRAG_GIZLI_ANAHTAR` = secret signing key, `MEDRAG_MAX_YUKLEME_MB` = max upload size MB.
+
+## 1. Quick setup (docker compose)
 
 ```bash
-cp .env.example .env          # doldur: MEDRAG_SIFRE + LLM/embedding değerleri
+cp .env.example .env          # fill in: MEDRAG_SIFRE (password) + LLM/embedding values
 docker compose up -d --build  # web + pipeline-worker + pipeline + qdrant
 ```
 
-Dört servis:
+Four services:
 
-| Servis | Görev |
+| Service | Role |
 |---|---|
-| `web` | SPA + API (gunicorn, port 8507). Upload, chat, kütüphane, notlar. |
-| `pipeline-worker` | İş kuyruğu (`/corpus/isler`): upload edilen dosyayı parse→chunk→vectorize ile işler, silme/temizlik yapar. Tek replika, sıralı koşum. |
-| `pipeline` | Boşta bekleyen (`sleep infinity`) `docker exec` hedefi — gecelik zincir ve yedek bu konteynıra exec ile koşturulur. |
-| `qdrant` | Vektör deposu (sabit sürüm `v1.19.0`). |
+| `web` | SPA + API (gunicorn, port 8507). Upload, chat, library, notes. |
+| `pipeline-worker` | Job queue (`/corpus/isler`): processes an uploaded file through parse→chunk→vectorize, and handles delete/cleanup. Single replica, sequential run. |
+| `pipeline` | Idle (`sleep infinity`) `docker exec` target — the nightly chain and backups are run by exec-ing into this container. |
+| `qdrant` | Vector store (pinned `v1.19.0`). |
 
-Sağlık kontrolü:
+Health check:
 
 ```bash
-docker compose ps                 # web healthy olmalı
+docker compose ps                 # web should be healthy
 curl -s http://localhost:8507/api/auth/session
 ```
 
-Tarayıcı: `http://<makine-ip>:8507` → şifre ekranı → kütüphane.
+Browser: `http://<machine-ip>:8507` → password screen → library.
 
-### İlk çalıştırma
+### First run
 
-1. `.env`'de `MEDRAG_SIFRE`'yi mutlaka doldurun (boşsa auth **kapalı** olur).
-2. LLM/embedding adresleri host'ta çalışıyorsa `http://host.docker.internal:...`
-   kullanın (Linux'ta `extra_hosts` compose'da zaten tanımlı).
-3. Kütüphaneden ilk belgeyi yükleyin; durum rozeti `kuyrukta → işleniyor →
-   hazır` akışını izler. İlk işleme embedding modelini indirir (yavaş olabilir).
-4. **Kritik hizalama:** `EMBEDDING_MODEL` + Qdrant koleksiyon adı üç tarafta
-   (vectorize, retrieval, chatbot) aynı olmalıdır. Model değiştirileceği zaman:
-   koleksiyonu silip yeniden oluşturun (`curl -X DELETE
-   http://localhost:6333/collections/<ad>`), sonra tüm belgeleri yeniden yükleyin.
+1. Always set `MEDRAG_SIFRE` in `.env` (if empty, auth is **disabled**).
+2. If LLM/embedding endpoints run on the host, use `http://host.docker.internal:...`
+   (`extra_hosts` is already declared in compose for Linux).
+3. Upload the first document from the library; the status badge follows
+   `queued → processing → ready`. First processing downloads the embedding model
+   (can be slow).
+4. **Critical alignment:** `EMBEDDING_MODEL` + the Qdrant collection name must be the
+   same on all three sides (vectorize, retrieval, chatbot). To change the model, delete
+   and recreate the collection (`curl -X DELETE
+   http://localhost:6333/collections/<name>`), then re-upload all documents.
 
-## 2. Yerleşim (volume şeması)
+## 2. Layout (volume scheme)
 
-Tek kalıcı kök: `CORPUS_HOST_DIR` (ör. `/home/user/med-rag/korpus`):
+A single persistent root: `CORPUS_HOST_DIR` (e.g. `/home/user/med-rag/korpus`):
 
 ```
 korpus/
-  BELGELER/            kaynak belgeler + notlar/ (TEK GERÇEK KAYNAK)
-  document_nodes.json  registry (event-driven; upload/silme yazar)
-  parsed/              IR + markdown türevleri
+  BELGELER/            source documents + notes/ (SINGLE SOURCE OF TRUTH)
+  document_nodes.json  registry (event-driven; written by upload/delete)
+  parsed/              IR + markdown derivations
   chunks/              all_chunks.json
-  vectorize/           embedding durum/state
-  durum/               dosya başına işleme durumu (rozeti besler)
-  isler/               iş kuyruğu (dosya tabanlı)
-  storage/images       parser blob deposu (SILEN DATA LOSS noktası — kalıcı olmalı)
-  yedekler/            gecelik yedekler (aşağıda)
+  vectorize/           embedding state
+  durum/               per-file processing status (feeds the badge)
+  isler/               job queue (file-based)
+  storage/images       parser blob store (DATA LOSS point — must be persistent)
+  yedekler/            nightly backups (below)
 loglar/
-  chatbot/             uygulama logları
-  conversations/       sohbet kayıtları (hesap verebilirlik izi)
+  chatbot/             application logs
+  conversations/       chat transcripts (accountability trace)
 ```
 
-`web` ve `pipeline-worker` korpusa **okuma-yazma** erişir (api bir yazardır:
-upload → BELGELER + registry + isler/). Gecelik zincir yalnız `pipeline`
-konteynerinden koşturulur.
+`web` and `pipeline-worker` both read-write the corpus (the API is a writer:
+upload → BELGELER + registry + isler/). The nightly chain is run only from the `pipeline`
+container.
 
-## 3. Gecelik yedek (K17/E3)
+## 3. Nightly backup (K17/E3)
 
-Yedek iki katman alır:
+The backup has two layers:
 
-1. **Altyapı** (`nightly_backup.run_backup`): registry, chunks, parse çıktısı,
-   specs.db + **Qdrant snapshot** (sunucu taraflı; `qdrant/snapshot_name.txt`).
-2. **med-rag eki**: kaynak korpus `BELGELER/` (belgeler + notlar) ve `durum/`.
+1. **Infrastructure** (`nightly_backup.run_backup`): registry, chunks, parse output,
+   specs.db + **Qdrant snapshot** (server-side; `qdrant/snapshot_name.txt`).
+2. **med-rag extras**: source corpus `BELGELER/` (documents + notes) and `durum/`.
 
-Koşturma (cron ya da Coolify scheduled task — hedef: `pipeline` konteyneri):
+Run it (cron or a Coolify scheduled task — target: the `pipeline` container):
 
 ```bash
 docker exec med-rag-pipeline-1 python -m medrag.pipeline.lifecycle.backup_cli
 ```
 
-Yedek kökü: `NIGHTLY_BACKUP_ROOT` (compose'da `/corpus/yedekler` yerine
-`/corpus/nightly_backups`'a bağlanmıştır — host'ta
-`$CORPUS_HOST_DIR/nightly_backups`). Cron örneği (her gece 03:00):
+Backup root: `NIGHTLY_BACKUP_ROOT` (mounted to `/corpus/nightly_backups` in compose
+instead of `/corpus/yedekler`; on the host `$CORPUS_HOST_DIR/nightly_backups`). Cron
+example (every night at 03:00):
 
 ```cron
 0 3 * * * docker exec med-rag-pipeline-1 python -m medrag.pipeline.lifecycle.backup_cli >> /home/user/med-rag/loglar/backup.log 2>&1
 ```
 
-### 3.1. Geri yükleme prosedürü (tatbikat adımları)
+### 3.1. Restore procedure (drill steps)
 
-> İlke: restore, yedek alındığı andaki hâle döner. Türevler (parsed/chunks)
-> bozuk yedekten geri gelse bile kaynak `BELGELER/` hep elinizedir.
+> Principle: restore returns to the state at backup time. Even if derivations (parsed/chunks)
+> come back from a bad backup, the source `BELGELER/` is always in your hands.
 
 ```bash
-# 0) Dur: worker'ı durdur (yeni iş almasın), web kalsın da sonrasın da test edebilelim
+# 0) Stop the worker (so it takes no new jobs); keep web up so we can test afterwards
 docker compose stop pipeline-worker
 
-# 1) En son yedeği belirle
+# 1) Determine the latest backup
 YEDEK=$(ls -1d $CORPUS_HOST_DIR/nightly_backups/*/ | sort | tail -1); echo $YEDEK
-cat "$YEDEK/manifest.json"   # eksik/kayıp var mı bak
+cat "$YEDEK/manifest.json"   # check for missing/lost items
 
-# 2) Altyapı türevlerini geri yaz (registry, chunks, parsed, specs.db)
+# 2) Restore the infrastructure derivations (registry, chunks, parsed, specs.db)
 docker exec med-rag-pipeline-1 python -c "
 from medrag.pipeline.cli import nightly_backup
 nightly_backup.restore_backup('$YEDEK')
 "
-# Not: qdrant kalemi burada ATLANIR (snapshot sunucu tarafındadır) — adım 3.
+# Note: the qdrant item is SKIPPED here (snapshot is server-side) — that is step 3.
 
-# 3) Qdrant snapshot'ını geri yükle
+# 3) Restore the Qdrant snapshot
 SNAP=$(cat "$YEDEK/qdrant/snapshot_name.txt")
-# 3a) Snapshot dosyası qdrant volume'ünde değilse önce kopyala:
+# 3a) If the snapshot file is not on the qdrant volume, copy it first:
 #     docker cp "$YEDEK/qdrant/$SNAP" med-rag-qdrant-1:/qdrant/storage/snapshots/
 docker exec med-rag-qdrant-1 curl -s -X PUT \
   http://localhost:6333/collections/medrag_chunks/snapshots/recover \
   -H 'Content-Type: application/json' \
   -d "{\"location\": \"snapshots/$SNAP\"}"
 
-# 4) Kaynak korpus + notlar + durum (med-rag eki) — elle geri kopyala
+# 4) Restore the source corpus + notes + status (med-rag extras) by hand
 rsync -a --delete "$YEDEK/BELGELER/" "$CORPUS_HOST_DIR/BELGELER/"
 rsync -a "$YEDEK/durum/"      "$CORPUS_HOST_DIR/durum/"
 
-# 5) Worker'ı geri başlat; kuyruk temiz olsun
+# 5) Restart the worker; make sure the queue is clean
 rm -f "$CORPUS_HOST_DIR"/isler/*.json "$CORPUS_HOST_DIR"/isler/*.claim 2>/dev/null
 docker compose start pipeline-worker
 
-# 6) Tatbikat doğrulaması
+# 6) Drill verification
 curl -s http://localhost:8507/api/library/documents | head -c 400
-# → belge listesi geliyorsa restore tamam. Bir belge açıp chat'te
-#   soru sor; atıf geliyorsa Qdrant restore de sağlam demektir.
+# → if the document list comes back, restore is complete. Open a document and ask a
+#   question in chat; if the citation appears, the Qdrant restore is sound too.
 ```
 
-`restore_backup`, sqlite'ı WAL-güvenli kopyayla (`_restore_sqlite`) geri
-yazar; qdrant hariç tüm kalemleri manifest sırasıyla döndürür.
+`restore_backup` rewrites sqlite with a WAL-safe copy (`_restore_sqlite`) and returns all
+items in manifest order except qdrant.
 
-## 4. Gözlemlenebilirlik (E4)
+## 4. Observability (E4)
 
-| Ne | Nerede |
+| What | Where |
 |---|---|
-| Uygulama logları (api) | `$LOGS_HOST_DIR/chatbot/` |
-| Sohbet kayıtları | `$LOGS_HOST_DIR/conversations/` (tek hesap verebilirlik izi) |
-| İşleme durumu | `$CORPUS_HOST_DIR/durum/<doc_id>.json` (+ UI rozetleri, SSE) |
-| Hatalı belge teşhisi | worker logları: `docker logs med-rag-pipeline-worker-1` |
-| Gecelik raporlar | `$CORPUS_HOST_DIR/reports/nightly_YYYY-MM-DD.json` |
+| Application logs (api) | `$LOGS_HOST_DIR/chatbot/` |
+| Chat transcripts | `$LOGS_HOST_DIR/conversations/` (the single accountability trace) |
+| Processing status | `$CORPUS_HOST_DIR/durum/<doc_id>.json` (+ UI badges, SSE) |
+| Failed-document diagnosis | worker logs: `docker logs med-rag-pipeline-worker-1` |
+| Nightly reports | `$CORPUS_HOST_DIR/reports/nightly_YYYY-MM-DD.json` |
 
-Eski lineage paneli (`src/medrag/api/panel/`) **kapsam dışı** bırakıldı: kod
-duruyor ama compose'a servis olarak bağlı değil (karar: Açık-4). Teşhis yukarıdaki
-log + durum dosyaları üzerinden yürür.
+The old lineage panel (`src/medrag/api/panel/`) is **out of scope**: the code remains but
+is not wired into compose (decision: Open-4). Diagnosis is done via the logs + `durum/`
+files + nightly reports above.
 
-## 5. Güvenlik sertleştirme (E5)
+## 5. Security hardening (E5)
 
-- **Şifre**: `MEDRAG_SIFRE` boşsa auth kapalı — asla boş bırakmayın. Oturum,
-  imzalı httpOnly çerezdir (`MEDRAG_GIZLI_ANAHTAR` ile; boşsa şifreden türetilir).
-- **Upload sınırları**: uzantı whitelist'i (`.pdf .docx .pptx .xlsx .html .md`)
-  dışındaki dosyalar 415 alır; dosya başına limit `MEDRAG_MAX_YUKLEME_MB`
-  (varsayılan 200 MB), aşanlar 413 alır.
-- **Ağ**: bu kurulum **ev ağı içindir**. Router'dan port yönlendirme YAPMAYIN;
-  dışarıdan erişim gerekiyorsa Coolify/Traefik arkasında HTTPS + ek kimlik
-  katmanıyla açın. `web` 8507'de tüm arayüzleri dinler — sadece LAN'ın
-  görebildiğinden emin olun (gerekirse compose'da `ports: "127.0.0.1:8507:8507"`).
-- **Sırlar**: yalnız `.env`'de (gitignore'ludur, commit edilmez).
+- **Password**: if `MEDRAG_SIFRE` is empty, auth is off — never leave it empty. The
+  session is a signed httpOnly cookie (signed with `MEDRAG_GIZLI_ANAHTAR`; if empty,
+  derived from the password).
+- **Upload limits**: files outside the extension whitelist
+  (`.pdf .docx .pptx .xlsx .html .md`) get 415; per-file limit is `MEDRAG_MAX_YUKLEME_MB`
+  (default 200 MB), over that returns 413.
+- **Network**: this setup is **for a home network**. Do NOT port-forward from the router;
+  if outside access is needed, expose it behind Coolify/Traefik with HTTPS + an extra auth
+  layer. `web` listens on 8507 on all interfaces — make sure only the LAN can see it
+  (if needed, `ports: "127.0.0.1:8507:8507"` in compose).
+- **Secrets**: only in `.env` (gitignored, never committed).
 
-## 6. Uçtan uca kabul (F2)
+## 6. End-to-end acceptance (F2)
 
-Otomatik duman testi (çalışan stack'e karşı):
+Automated smoke test (against a running stack):
 
 ```bash
 .venv/bin/python tools/e2e_smoke.py --base-url http://localhost:8507 \
-    --sample tests_ornek.pdf            # ör. küçük bir PDF
-# şifre varsa: --password ...
-# LLM dahil tam tur (yavaş, token harcar): --chat
+    --sample tests_sample.pdf           # e.g. a small PDF
+# if a password is set: --password ...
+# full turn including the LLM (slow, spends tokens): --chat
 ```
 
-Senaryo: yükle → durum izle → hazır → içerik gör → not ekle → not kaynaklı
-arama → belge sil → anında kaybolduğunu doğrula. `--chat` ile: soru sor →
-atıflı cevap → kaynağa tıkla (manuel adım).
+Scenario: upload → watch status → ready → view content → add note → search citing the
+note → delete document → verify it disappears immediately. With `--chat`: ask a question →
+cited answer → click the source (manual step).
 
-El ile kabul çeki listesi (kayıt için):
+Manual acceptance checklist (for the record):
 
-1. [ ] Şifresiz istek `/api/*` uçlarında 401 alıyor
-2. [ ] Çoklu dosya sürükle-bırak yükleme çalışıyor
-3. [ ] Durum rozetleri canlı ilerliyor (kuyrukta → işleniyor → hazır)
-4. [ ] Soruya cevap satır içi `[n]` rozetleriyle geliyor; rozet kaynağa götürüyor
-5. [ ] Kaynak bulunamayan soruda "bulamadım" + hekim notu görünüyor
-6. [ ] Not oluşturma → ~çevrimiçi işlenme → chat notu kaynak gösteriyor
-7. [ ] Belge silme → kütüphane satırı, chunk, vektör izleri anında gidiyor
-8. [ ] Aynı dosyanın değiştirilmiş hâlini yükleme → eski içerik artık bulunmuyor
-9. [ ] Yedek koşuyor ve §3.1 tatbikatı başarıyla tamamlandı
+1. [ ] Unauthenticated requests get 401 on `/api/*`
+2. [ ] Multi-file drag-and-drop upload works
+3. [ ] Status badges advance live (queued → processing → ready)
+4. [ ] The answer arrives with inline `[n]` badges; the badge leads to the source
+5. [ ] A question with no source shows "I couldn't find that" + clinician note
+6. [ ] Create a note → processed online → chat cites the note as a source
+7. [ ] Deleting a document removes its library row, chunk and vector traces immediately
+8. [ ] Re-uploading a changed version of the same file no longer finds the old content
+9. [ ] The backup runs and the §3.1 drill completes successfully

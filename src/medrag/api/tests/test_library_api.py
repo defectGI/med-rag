@@ -195,6 +195,27 @@ def test_document_file_download_and_404(corpus, app):
     assert client.get("/api/library/documents/olmayan/file").status_code == 404
 
 
+def test_document_original_returns_raw_text_for_md(corpus, app):
+    client = app.test_client()
+    doc = client.post("/api/library/documents", data={
+        "files": (__import__("io").BytesIO(b"# ham\n**metin**"), "e.md"),
+    }, content_type="multipart/form-data").get_json()["accepted"][0]
+    resp = client.get(f"/api/library/documents/{doc['doc_id']}/original")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["file_name"] == "e.md"
+    assert body["content"] == "# ham\n**metin**"
+
+
+def test_document_original_415_for_binary(corpus, app):
+    client = app.test_client()
+    doc = client.post("/api/library/documents", data={
+        "files": (__import__("io").BytesIO("PİDF".encode()), "f.pdf"),
+    }, content_type="multipart/form-data").get_json()["accepted"][0]
+    resp = client.get(f"/api/library/documents/{doc['doc_id']}/original")
+    assert resp.status_code == 415
+
+
 def test_delete_nonexistent_returns_404(corpus, app):
     assert app.test_client().delete("/api/library/documents/yok").status_code == 404
 

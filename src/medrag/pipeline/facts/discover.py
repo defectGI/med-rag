@@ -58,7 +58,7 @@ from medrag.core.paths import resolve_specs_db_path
 
 HERE = Path(__file__).resolve().parent
 FACTS_ROOT = HERE  # src/medrag/pipeline/facts/ (code)
-REPO_ROOT = HERE.parents[3]  # medrag/ (facts/pipeline/urun/src/<repo>)
+REPO_ROOT = HERE.parents[3]  # medrag/ (facts/pipeline/medrag/src/<repo>)
 # DATA (db/specs.db, snapshots/) was NOT moved with the code (O-03 scope
 # was code only); the actual working data still lives in `facts/` at the
 # repo root (facts/db/specs.db, facts/snapshots/*.txt). To avoid

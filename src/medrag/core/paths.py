@@ -55,7 +55,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-# src/medrag/core/paths.py -> core/ -> urun/ -> src/ -> repo root
+# src/medrag/core/paths.py -> core/ -> medrag/ -> src/ -> repo root
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 FACTS_DB_DIR = _REPO_ROOT / "facts" / "db"

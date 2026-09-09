@@ -1,20 +1,20 @@
-"""Qdrant istemcisi: koleksiyon kurulumu + "kapsamı değiştir" sözleşmesi.
+"""Qdrant client: collection setup + the "replace scope" contract.
 
-Kontrat (kök `chunker/chunker/core/chunk.py` docstring'i, node_id bölümü —
-KARAR-004): chunk node_id'leri SET-KAPSAMLIDIR, setler arası kararlılık VAAT
-EDİLMEZ. Bir doküman yeniden chunk'landığında `{doc_id}::c{n}` numaralandırması
-sıfırdan atanır; eski numaralar yeni koşuda farklı içeriğe karşılık gelebilir.
-Bu yüzden bir vektör DB'ye yazan taraf (chunk.py'nin kendi sözünü tuttuğu
-üzere) bir kapsamı güncellerken "yalnız değişeni upsert et" OYNAMAZ — o
-kapsamın (`doc_id`/`_corpus`/`_profile.*`) Qdrant'taki TÜM eski noktalarını
-siler, sonra yeni setin tamamını yazar. `replace_scope` bunu tek metotta
-kapsüller ki çağıran taraf (cli.py) yanlışlıkla incremental upsert'e kaymasın.
+Contract (root `chunker/chunker/core/chunk.py` docstring, node_id section --
+KARAR-004): chunk node_ids are SET-SCOPED, stability ACROSS sets is NOT
+PROMISED. When a document is re-chunked, the `{doc_id}::c{n}` numbering is
+reassigned from scratch; old numbers may correspond to different content in a
+new run. So the side writing to a vector DB (keeping chunk.py's own promise)
+does NOT play "upsert only the changed one" when updating a scope -- it deletes
+ALL old points of that scope (`doc_id`/`_corpus`/`_profile.*`) in Qdrant, then
+writes the whole new set. `replace_scope` encapsulates this in a single method
+so the calling side (cli.py) cannot accidentally drift into incremental upsert.
 
-Nokta kimliği: Qdrant yalnız unsigned int veya UUID kabul eder; chunk
-`node_id`leri serbest metin (`{doc_id}::c3` gibi) olduğundan `uuid5` ile
-deterministik bir UUID'ye çevrilir (aynı node_id → aynı nokta id'si, iki ayrı
-koşu çakışmaz). Orijinal `node_id` payload'da `node_id` alanında saklanır —
-kimliğin okunabilir hali kaybolmaz.
+Point id: Qdrant only accepts unsigned int or UUID; chunk `node_id`s are free
+text (like `{doc_id}::c3`) so they are converted via `uuid5` to a deterministic
+UUID (same node_id → same point id, two separate runs do not collide). The
+original `node_id` is stored in the `node_id` payload field so the readable
+form of the id is not lost.
 """
 
 from __future__ import annotations
@@ -26,8 +26,8 @@ from typing import Any, Literal
 
 log = logging.getLogger("vectorize.store")
 
-# Sabit namespace: bu paketin kendi UUID5 kökü. Değiştirilirse TÜM node_id →
-# point_id eşlemesi değişir (mevcut koleksiyondaki her nokta "yeni" sayılır).
+# Fixed namespace: this package's own UUID5 root. If changed, EVERY node_id →
+# point_id mapping changes (every point in the existing collection counts as "new").
 _NAMESPACE = uuid.UUID("d3c1b8b4-8b7e-4c1a-9c2e-2b6f7f1a9a01")
 
 
@@ -43,13 +43,12 @@ class VectorPoint:
 
 
 class DimensionMismatchError(RuntimeError):
-    """Koleksiyon zaten farklı boyutta kurulu ve `on_dim_mismatch=error`."""
+    """The collection was already set up at a different size and `on_dim_mismatch=error`."""
 
 
 class QdrantVectorStore:
-    """`qdrant-client`in ince bir sarmalayıcısı — istemci burada tek yerde
-    kurulur, çağıran taraf (cli.py) yalnızca `ensure_collection`/`replace_scope`
-    çağırır."""
+    """A thin wrapper around `qdrant-client` -- the client is constructed here in
+    one place; the calling side (cli.py) only calls `ensure_collection`/`replace_scope`."""
 
     def __init__(self, *, client: Any, collection_name: str,
                  distance: Literal["cosine", "dot", "euclid"],
@@ -73,9 +72,9 @@ class QdrantVectorStore:
                    upsert_batch_size=upsert_batch_size)
 
     def ensure_collection(self, vector_size: int) -> None:
-        """Koleksiyon yoksa kurar; varsa boyutunu doğrular. Boyut uyuşmazsa
-        `on_dim_mismatch` kararına göre ya yüksek sesle patlar ya da
-        koleksiyonu silip yeniden kurar (veri kaybı — bilinçli opt-in)."""
+        """Creates the collection if missing; verifies its size if present. On a
+        size mismatch, per `on_dim_mismatch`, either fails loudly or deletes and
+        recreates the collection (data loss -- deliberate opt-in)."""
         from qdrant_client.http import models as qm
 
         if not self.client.collection_exists(self.collection_name):
@@ -111,20 +110,22 @@ class QdrantVectorStore:
                 "euclid": qm.Distance.EUCLID}[self.distance]
 
     def replace_scope(self, scope_id: str, points: list[VectorPoint]) -> None:
-        """`scope_id`ye ait TÜM eski noktaları siler, ardından `points`i yazar
-        (KARAR-004 sonucu — bkz. modül docstring'i). `points` boşsa yalnız
-        silme yapılır (kapsamın artık hiç düğümü yoksa, ör. boş doküman)."""
+        """Deletes ALL old points belonging to `scope_id`, then writes `points`
+        (the KARAR-004 outcome -- see the module docstring). If `points` is empty
+        only deletion happens (when the scope has no nodes left, e.g. empty doc)."""
         from qdrant_client.http import models as qm
 
-        # KRİTİK: boş bir Qdrant'ta ilk işlemede koleksiyon henüz YOK (henüz
-        # `ensure_collection` çağrılmadı); burada `delete` 404 ile ölür ve ilk
-        # yüklenen belge "error"a düşer (med-rag boot bug: ilk kurulumda ilk
-        # belge garanti hata). Koleksiyon yoksa silinecek nokta da yoktur —
-        # silme no-op, yazma akışı zaten `cli.py`'de `ensure_collection` ile
-        # koleksiyonu kurar. `points` doluysa koleksiyon kesin var demektir
-        # (çağıran önce ensure eder); yine de yoksa eksik kurulumu üstteki
-        # silme no-op korur, yazma ise yine 404 verir -- bu, yanlış hizalamayı
-        # "fail loudly" ilkesiyle açığa çıkarır.
+        # CRITICAL: in an empty Qdrant the collection does not yet exist on the
+        # first processing (`ensure_collection` has not been called yet); here
+        # `delete` dies with a 404 and the first loaded document lands on "error"
+        # (med-rag boot bug: first setup, first document guaranteed error). If the
+        # collection is missing there are no points to delete either -- deletion
+        # is a no-op, and the write path already sets the collection up in
+        # `cli.py` via `ensure_collection`. If `points` is non-empty the
+        # collection definitely exists (the caller ensures first); even so, if it
+        # is missing the no-op deletion above protects the incomplete setup, while
+        # the write still 404s -- which, per the "fail loudly" principle, exposes
+        # the wrong alignment.
         if self.client.collection_exists(self.collection_name):
             self.client.delete(
                 collection_name=self.collection_name,
@@ -141,9 +142,9 @@ class QdrantVectorStore:
         log.info("qdrant: kapsam %s → %d nokta yazıldı", scope_id, len(points))
 
     def search(self, vector: list[float], *, limit: int) -> list[dict]:
-        """En yakın `limit` noktayı skoruyla birlikte döndürür — her sonuç
-        `_node_payload`nin yazdığı TÜM alanları (text, doc_id, node_id,
-        heading_path, ...) + `score` taşır (bkz. `vectorize/query.py`)."""
+        """Returns the `limit` nearest points together with their score -- each
+        result carries ALL the fields `_node_payload` writes (text, doc_id,
+        node_id, heading_path, ...) plus `score` (see `vectorize/query.py`)."""
         sonuc = self.client.query_points(
             collection_name=self.collection_name, query=vector, limit=limit,
             with_payload=True)

@@ -1,72 +1,71 @@
-"""Tek giris noktasi: `medrag-nightly` (N-01).
+"""Single entry point: `medrag-nightly` (N-01).
 
-`scan -> parse -> chunk -> ownership -> facts -> load -> vectorize` sirasini
-calistirir (N-22: `ownership`/`load` ikisi de daha once zincire HIC BAGLI
-DEGILDI -- `ownership` chunk-sahiplik tablosunu (`catalog_chunk_ownership/
-build_all.py`) urettigi icin `facts`TEN ONCE gelir (facts'in cok-sahipli
-fan-out daraltmasi bu tabloyu okur), `load` ise facts'in urettigi JSON'lari
-`specs.db`ye YAZDIGI icin `facts`TEN SONRA gelir -- bu ikisi baglanmadan
-gece kosusu specs.db'ye TEK SATIR YAZMIYORDU, bkz. asagidaki `stage_ownership`/
-`stage_load` docstring'leri). Her
-asama mevcut giris noktalarinin PROGRAMATIK fonksiyonunu cagirir --
-subprocess YOK (bu dosyanin tek isi orkestrasyon, is mantigi zaten var
-olan modullerde):
+Runs the `scan -> parse -> chunk -> ownership -> facts -> load -> vectorize`
+order (N-22: `ownership`/`load` were both NOT PREVIOUSLY connected to the chain
+-- `ownership` comes BEFORE `facts` because it produces the chunk-ownership
+table (`catalog_chunk_ownership/build_all.py`) and facts' multi-owner fan-out
+narrowing reads this table; `load` comes AFTER `facts` because it WRITES the
+JSONs facts produces into `specs.db` -- before these two were connected the
+nightly run did NOT write a SINGLE ROW to specs.db, see the `stage_ownership`/
+`stage_load` docstrings below). Each
+stage calls the PROGRAMMATIC function of the existing entry points --
+NO subprocess (this file's only job is orchestration; the business logic
+already lives in the existing modules):
 
     scan       chatbot-corpus/document_info/classify_documents.py::main()
-               (`medrag` paketinin DISINDA -- Grup D'nin tasima kapsamina
-               henuz girmedi; kendi dizinindeki duz `config` modulunu ayni
-               isimle import ettigi icin normal `import` yerine path-tabanli
-               lazy-import + gecici sys.path eklemesi kullanilir, parser'in
-               D-39 ONCESI kullandigi desenin ayni -- yalnizca stage_scan()
-               gercekten cagrildiginda calisir, modul import zamaninda hicbir
-               yan etki yok)
+               (OUTSIDE the `medrag` package -- it has not yet entered Group D's
+               migration scope; because it imports the plain `config` module in
+               its own dir under the same name, a path-based lazy-import + a
+               temporary sys.path insertion is used instead of a normal
+               `import`, the same pattern the parser used BEFORE D-39 -- it only
+               runs when stage_scan() is actually called, no side effect at
+               module import time)
     parse      medrag.pipeline.cli.run_parse_pipeline.main(argv=[])
-               (argv=[] ZORUNLU: bos verilmezse argparse orkestratorun kendi
-               sys.argv'sini okur ve --stage/--from/--doc'u "bilinmeyen
-               bayrak" diye reddeder)
-    chunk      medrag.pipeline.cli.run_chunk_pipeline.main() (kendi ici zaten
-               `python -m medrag.pipeline.chunker`i subprocess'liyor -- o
-               chunker'in KENDI env-only sozlesmesi, bu N-01'in kapsami
-               DEGIL; burada degisen sey yalniz ORKESTRATORUN bu scripti
-               fonksiyon olarak cagirmasi)
+               (argv=[] MANDATORY: if not given empty, argparse reads the
+               orchestrator's own sys.argv and rejects --stage/--from/--doc as
+               "unknown flag")
+    chunk      medrag.pipeline.cli.run_chunk_pipeline.main() (it already
+               subprocesses `python -m medrag.pipeline.chunker` internally --
+               that is the chunker's OWN env-only contract, NOT N-01's scope;
+               what changes here is only that the ORCHESTRATOR calls this script
+               as a function)
     ownership  medrag.pipeline.facts.catalog_chunk_ownership.build_all.main(argv=[])
-               (N-22: chunk'tan SONRA gelir cunku `all_chunks.json`a ihtiyaci
-               var, facts'TEN ONCE gelir cunku facts'in cok-sahipli fan-out
-               daraltmasi bu asamanin urettigi `chunk_ownership_all.json`i
-               okur -- tablo yoksa facts cok-sahipli dokumanlari TAMAMEN
-               dislar. `--doc` bu asamada NO-OP: build_all.py dokuman-bazli
-               filtre desteklemiyor, HER KOSU tum korpusu (tek+cok-sahipli)
-               tarar -- kendi checkpoint/devam mekanizmasi (`chunk_owner_
-               progress.jsonl`) var, KARAR-012'nin ikinci surumune benzer.)
-    facts      medrag.pipeline.facts.run_full.run_products(...) -- `main()`
-               DEGIL: run_full.main() argv'siz `argparse.parse_args()`
-               cagirir (orkestratorun kendi argv'sini okurdu). run_full.py'nin
-               kendi docstring'i `run_products`u tam olarak bu amacla
-               tanimliyor: "Grup N'in gecelik artimli kosusunun (bir doc_id
-               degisince ondan etkilenen urunleri yeniden isleme) dogrudan
-               cagirabilecegi programatik giris noktasi, CLI'a bagimli
-               degil."
-    load       medrag.pipeline.facts.load_to_db.main(argv=[...]) (N-22: facts'in
-               urettigi `results/<CODE>.json`lari `specs.db`ye YAZAR --
-               `run_products` specs.db'ye HICBIR SEY yazmadigi icin bu asama
-               baglanmadan gece kosusu DB'de tek satir degistirmiyordu.
-               `facts` asamasinin isledigi AYNI urun kumesini `_resolve_
-               incremental_codes()` ile TEKRAR cozer (specs.db facts
-               sirasinda hic degismedigi icin ayni kume) ve `--models <kume>
-               --force` ile cagirir -- bu, `load_product_incremental`
-               (O-12) ile TAM ESDEGERDIR (bkz. o fonksiyonun docstring'i).)
-    vectorize  medrag.pipeline.vectorize.cli.calistir(...) -- `main()` DEGIL:
-               main() yalnizca argv ayristirma + logging.basicConfig +
-               .env yukleme sarmalayicisi, gercek is `calistir()`da.
+               (N-22: comes AFTER chunk because it needs `all_chunks.json`, and
+               BEFORE facts because facts' multi-owner fan-out narrowing reads
+               the `chunk_ownership_all.json` this stage produces -- if the table
+               is absent facts EXCLUDES multi-owner documents entirely. `--doc`
+               is a NO-OP in this stage: build_all.py does not support a
+               doc-level filter; EVERY run scans the whole corpus (single+multi
+               owner) -- it has its own checkpoint/resume mechanism
+               (`chunk_owner_progress.jsonl`), similar to the second version of
+               KARAR-012.)
+    facts      medrag.pipeline.facts.run_full.run_products(...) -- NOT `main()`:
+               run_full.main() calls `argparse.parse_args()` without argv (it
+               would read the orchestrator's own argv). run_full.py's own
+               docstring defines `run_products` for exactly this purpose: "The
+               programmatic entry point Group N's nightly incremental run (re-
+               processing the products affected when a doc_id changes) can call
+               directly, independent of the CLI."
+    load       medrag.pipeline.facts.load_to_db.main(argv=[...]) (N-22: WRITES
+               the `results/<CODE>.json`s facts produces into `specs.db` --
+               since `run_products` wrote NOTHING to specs.db, without this
+               stage the nightly run changed no row in the DB. It RE-resolves the
+               SAME product set `facts` processed with `_resolve_incremental_codes()`
+               (specs.db did not change during facts, so the same set) and calls
+               with `--models <set> --force` -- this is EXACTLY EQUIVALENT to
+               `load_product_incremental` (O-12) (see that function's docstring).)
+    vectorize  medrag.pipeline.vectorize.cli.calistir(...) -- NOT `main()`:
+               main() only wraps argv parsing + logging.basicConfig +
+               .env loading; the real work is in `calistir()`.
 
-Kural (I-26'nin korunan kabul cumlesi): `--stage`/`--from` ile baslatilan
-zincirde plana DAHIL OLMAYAN asamalarin fonksiyonu HIC CAGRILMAZ. Bu modul
-`stage_*` fonksiyonlarini `globals()` uzerinden, YALNIZ calisma zamaninda
-plana giren adlar icin cozer -- plan disindaki `stage_*` adi bu surec
-icinde bir kez bile referans edilmez (bkz. `tests/test_run_nightly.py`,
-`--from chunk` ile `stage_scan`/`stage_parse`in hic cagrilmadigini bir
-mock ile kanitlar; parse saatler surebilir, sessizce kosarsa fark
-edilmez ama GPU'yu isgal eder).
+Rule (I-26's preserved acceptance sentence): in a chain started with
+`--stage`/`--from`, the functions of stages NOT INCLUDED in the plan are NEVER
+CALLED. This module resolves the `stage_*` functions via `globals()`, ONLY for
+the names that enter the plan at run time -- a `stage_*` name outside the plan
+is never referenced even once in this process (see `tests/test_run_nightly.py`,
+which proves with a mock that `--from chunk` never calls `stage_scan`/`stage_parse`;
+parse can take hours, and if it runs silently you don't notice but it occupies
+the GPU).
 
 Flags:
     --stage <stage>   run ONLY this stage (manual-intervention shortcut)
@@ -84,28 +83,24 @@ Environment variables (repo convention: settings in env, see CONFIG.md):
     --doc <doc_id>    passed as `--doc-id` to the `facts` AND `load` stages
                       (reprocesses the products using that document -- the
                       other stages don't take a doc filter)
-                      scan/parse/chunk/ownership/vectorize'in ALTINDAKI
-                      mevcut giris noktalari dokuman-bazli filtre
-                      DESTEKLEMIYOR (scan: KARAR-001 -- kismi tarama
-                      gorulmeyen dosyalari yanlislikla DELETED'e dusurur;
-                      parse: butun bekleyen korpusu isler; chunk/vectorize:
-                      KARAR-012 ikinci surumu -- her kosu butun kapsami
-                      yeniden isler; ownership: build_all.py'nin kendi
-                      checkpoint/devam mekanizmasi var, dokuman-bazli filtre
-                      yok) -- bu asamalarda `--doc` sessizce yoksayilmaz,
-                      bir uyari basilir ve NO-OP olur (bilinen sinir, ileride
-                      ayri bir gorev konusu).
-    --dry-run         (N-03) hicbir veri yazmaz, ag cagrisi (Ollama/VLM/
-                      Qdrant/embedding) yapmaz -- her asama icin GERCEK
-                      `stage_*` yerine bir `_dry_run_*` raporlayicisi
-                      cagrilir; bu, disk uzerindeki AYNI kaynaklari
-                      (document_nodes.json, DOCUMENT_NODES_PATH, chunk
-                      girdi klasoru, specs.db, chunk kapsamlari) okuyup
-                      "bu asama gercekten kossaydi neyi islerdi" kumesini
-                      basar ve durur.
+                      the entry points UNDER scan/parse/chunk/ownership/vectorize
+                      do NOT support a doc-level filter (scan: KARAR-001 -- a
+                      partial scan wrongly drops unseen files to DELETED;
+                      parse: processes the whole pending corpus; chunk/vectorize:
+                      the second version of KARAR-012 -- each run re-processes the
+                      whole scope; ownership: build_all.py has its own
+                      checkpoint/resume mechanism, no doc-level filter) -- in these
+                      stages `--doc` is not silently ignored, a warning is printed
+                      and it becomes a NO-OP (known limitation, separate task later).
+    --dry-run         (N-03) writes no data and makes no network calls (Ollama/VLM/
+                      Qdrant/embedding) -- for each stage a `_dry_run_*` reporter is
+                      called instead of the real `stage_*`; it reads the SAME
+                      resources on disk (document_nodes.json, DOCUMENT_NODES_PATH,
+                      the chunk input folder, specs.db, chunk scopes) and prints the
+                      set "what would this stage really process if it ran" then stops.
 
-Kullanim:
-    python -m medrag.pipeline.cli.run_nightly                  # tam zincir
+Usage:
+    python -m medrag.pipeline.cli.run_nightly                  # full chain
     python -m medrag.pipeline.cli.run_nightly --from chunk      # chunk->vectorize
     python -m medrag.pipeline.cli.run_nightly --stage facts --doc PN1057
     python -m medrag.pipeline.cli.run_nightly --dry-run
@@ -124,17 +119,16 @@ from pathlib import Path
 
 STAGES = ["scan", "parse", "chunk", "ownership", "facts", "load", "vectorize"]
 
-# src/medrag/pipeline/cli/run_nightly.py -> repo koku (4 seviye yukari, diger
-# pipeline scriptleriyle AYNI konvansiyon -- bkz. run_chunk_pipeline.py'nin
-# CHUNKER_DIR yorumu).
+# src/medrag/pipeline/cli/run_nightly.py -> repo root (4 levels up, the SAME
+# convention as the other pipeline scripts -- see run_chunk_pipeline.py's
+# CHUNKER_DIR comment).
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _DOCUMENT_INFO_DIR = _REPO_ROOT / "chatbot-corpus" / "document_info"
 def _load_classify_documents():
-    """`classify_documents.py`yi path'ten lazy-import eder. Modul kendi
-    dizinindeki duz `config.py`yi `from config import load_config` ile
-    import ediyor -- bu yuzden import sirasinda `document_info/` dizini
-    gecici olarak `sys.path`e eklenir (yalnizca bu fonksiyon calisirken;
-    finally'de geri cikarilir, kalici bir yan etki birakmaz)."""
+    """Lazy-imports `classify_documents.py` from a path. The module imports its
+    own plain `config.py` with `from config import load_config` -- so at import
+    time the `document_info/` dir is temporarily added to `sys.path` (only while
+    this function runs; removed in finally, leaving no permanent side effect)."""
     if not _DOCUMENT_INFO_DIR.is_dir():
         raise RuntimeError(
             f"chatbot-corpus/document_info bulunamadi: {_DOCUMENT_INFO_DIR}")
@@ -159,10 +153,10 @@ def _doc_noop(stage: str, reason: str, doc_id: str | None) -> None:
 
 
 def stage_scan(*, doc_id: str | None = None) -> dict:
-    """N-21: `module.main()`in dondurdugu `output` dict (`summary`/
-    `documents`) artik ATILMIYOR, cagirana geri veriliyor -- gecelik
-    raporun Kaynak farki/Atlananlar bolumlerinin TEK gercek kaynagi bu
-    (`_build_nightly_report` -- sayi UYDURULMAZ, scan zaten hesapliyor)."""
+    """N-21: the `output` dict `module.main()` returns (`summary`/`documents`)
+    is no longer THROWN AWAY, it is returned to the caller -- this is the ONLY
+    real source of the nightly report's Source-diff/Skipped sections
+    (`_build_nightly_report` -- no number is INVENTED, scan already computes it)."""
     _doc_noop("scan", "classify_documents.py dokuman-bazli filtre "
               "desteklemiyor, KARAR-001 -- tum BELGELER agaci taranir", doc_id)
     module = _load_classify_documents()
@@ -170,23 +164,22 @@ def stage_scan(*, doc_id: str | None = None) -> dict:
 
 
 def _read_document_nodes() -> dict | None:
-    """K-99 (2026-08-26 fix, takip incelemesi maddesi 6 -- temizlik):
-    `document_nodes.json`i okuyan HER yerin (`_forgettable_scan_records`/
-    `_incremental_doc_ids`/`_parse_failed_docs`) TEK ortak noktasi -- ucu de
-    kendi `_bootstrap()` + "dosya var mi" + `json.loads` KOPYASINI
-    tasiyordu. Dosya YOKSA `None` doner (cagiran taraf bos liste/kume
-    dondurur).
+    """K-99 (2026-08-26 fix, follow-up inspection item 6 -- cleanup):
+    the ONE shared point of ever place reading `document_nodes.json`
+    (`_forgettable_scan_records`/`_incremental_doc_ids`/`_parse_failed_docs`) --
+    all three carried their own COPY of `_bootstrap()` + "does file exist" +
+    `json.loads`. Returns `None` if the file DOES NOT EXIST (the caller returns
+    an empty list/set).
 
-    BILINCLI OLARAK cache TUTMAZ -- HER CAGRIDA dosyayi YENIDEN okur: ucu de
-    kosunun FARKLI zaman noktalarinda cagrilir (`_forgettable_scan_records`:
-    parse ONCESI; `_parse_failed_docs`: parse SONRASI; `_incremental_doc_ids`:
-    facts asamasinda, ayri bir `stage_*` cagrisinda) ve dosya bu noktalar
-    ARASINDA GERCEKTEN degisir (`run_parse_pipeline.main()` her dokumandan
-    sonra yazar) -- tek bir onbellek bayat/yanlis veri dondururdu. `run_parse_
-    pipeline._bootstrap()`in coktan cozdugu `DOCUMENT_NODES_PATH`i kullanir --
-    classify_documents.py'nin kendi `OUTPUT_PATH`i ile AYNI dosyayi gosterir
-    (ikisi de scan'in yazdigi/parse'in okudugu tek kayit), ikinci bir
-    yol-cozme mantigi ACILMAZ."""
+    DELIBERATELY does NOT cache -- re-reads the file EVERY call: all three are
+    called at DIFFERENT points of the run (`_forgettable_scan_records`: BEFORE
+    parse; `_parse_failed_docs`: AFTER parse; `_incremental_doc_ids`: in the
+    facts stage, in a separate `stage_*` call) and the file REALLY changes between
+    those points (`run_parse_pipeline.main()` writes after every document) -- a
+    single cache would return stale/wrong data. Uses the `DOCUMENT_NODES_PATH`
+    `run_parse_pipeline._bootstrap()` already resolves -- it points at the SAME
+    file as classify_documents.py's own `OUTPUT_PATH` (both are the single record
+    scan writes/parse reads); no second path-resolution logic is added."""
     from medrag.pipeline.cli import run_parse_pipeline
 
     run_parse_pipeline._bootstrap()
@@ -197,51 +190,49 @@ def _read_document_nodes() -> dict | None:
 
 
 def _forgettable_scan_records() -> list[tuple[str, str | None, str, str | None]]:
-    """N-19 (K-96 adim 2) + K-97 (2026-08-26 fix) + K-100 (2026-08-27 fix):
-    `document_nodes.json`daki `scan_status IN ('DELETED', 'MODIFIED')`
-    kayitlarin `(doc_id, doc_type, scan_status, content_hash)` listesi --
-    `scan_status` UCUNCU alan olarak tasinir ki cagiran taraf
-    (`_forget_deleted_sources`) pending-rework kuyruguna yazabilsin,
-    `content_hash` DORDUNCU alan olarak tasinir ki cagiran taraf o hash'i
-    `scan.forgotten_hash`e yazip AYNI kaydi bir sonraki gece TEKRAR
-    unutmaya kalkismasin (asagidaki K-100 notu).
-    `is_active=false` kayitlar BURADA YOK -- onlar "silinmis" degil
-    "editoryal olarak devre disi" (farkli niyet, K-96), scan_status alani
-    zaten onlari DELETED yapmaz.
+    """N-19 (K-96 step 2) + K-97 (2026-08-26 fix) + K-100 (2026-08-27 fix):
+    the list of `(doc_id, doc_type, scan_status, content_hash)` for the
+    `scan_status IN ('DELETED', 'MODIFIED')` records in `document_nodes.json` --
+    `scan_status` is carried as the THIRD field so the caller
+    (`_forget_deleted_sources`) can write to the pending-rework queue; `content_hash`
+    is carried as the FOURTH field so the caller can write that hash to
+    `scan.forgotten_hash` and not try to forget the ALSO same record again the
+    next night (the K-100 note below).
+    `is_active=false` records are NOT HERE -- they are not "deleted" but
+    "editorially disabled" (a different intent, K-96); the scan_status field
+    does not make them DELETED anyway.
 
-    MODIFIED, DELETED KATILDI (eskiden yalniz DELETED isleniyordu): kullanici
-    karari -- kaynak DEGISIMI koddaki modellemede "SIL + EKLE" olarak ele
-    alinir, "yerinde guncelle" DEGIL. Bir dokuman MODIFIED oldugunda o
-    dokumanin ESKI icerigine ait TUM turevler (parse ciktisi, chunk kaydi,
-    Qdrant noktalari, spec kaniti) `forget_deleted_source` ile silinir; parse/
-    chunk/facts zinciri o gece AYNI kosu icinde YENI icerikten yeniden uretir
-    (dokuman "pending" listesinden hic dusmedi, yalniz silinmis DEGISTIRDI --
-    bkz. `_forget_deleted_sources`in cagrildigi yer, `stage_parse`in EN BASI).
-    MOVED BURAYA DAHIL DEGIL (N-07: bir dosyanin yeri degismesi silme+ekleme
-    SAYILMAZ, turevleri korunur).
+    MODIFIED was ADDED to DELETED (previously only DELETED was processed): user
+    decision -- a source CHANGE is modeled in code as "DELETE + ADD", not
+    "update in place". When a document becomes MODIFIED, ALL derivatives of that
+    document's OLD content (parse output, chunk record, Qdrant points, spec
+    evidence) are removed with `forget_deleted_source`; the parse/chunk/facts
+    chain re-produces them from the NEW content that same night, within the SAME
+    run (the document never fell out of the "pending" list, it only CHANGED what
+    was deleted -- see where `_forget_deleted_sources` is called, at the VERY START
+    of `stage_parse`). MOVED is NOT INCLUDED HERE (N-07: a file's location change
+    does NOT count as delete+add, its derivatives are preserved).
 
-    K-100 (2026-08-27 fix): `scan_status=DELETED` STICKY'dir (klasor
-    tarayicisi asla temizlemez, schema karari) -- bunun dogal sonucu: bu
-    filtre HICBIR gate OLMADAN "su an DELETED yazan HER KAYIT" doner, yani
-    GECMISTE zaten unutulmus (turevleri cazibasiyla silinmis) kayitlar da
-    HER GECE tekrar tekrar secilirdi. Gercek dunyada bunun ikinci bir
-    maliyeti var: bir kaynak SADECE GECICI olarak kayboldugunda (ag
-    surucusu tasima/kopyalama sirasinda YARIM tarandiginda -- 2026-08-27
-    olayi) forget_deleted_source GERCEKTEN calisir, sonra dosya GERI
-    donunce (AYNI rel_path + AYNI content_hash) tarayici onu sessizce
-    UNCHANGED'e cevirir -- ama `parse.parsed_from_hash` hala AYNI hash'i
-    tasidigi icin (forget bu alana hic dokunmuyordu) parse/chunk/facts bir
-    daha ASLA yeniden uretmezdi (bkz. `run_parse_pipeline.py`daki
-    `parsed_from_hash != content_hash` kapisi). `_forget_deleted_sources`
-    artik basariyla unuttugu her kayda `scan.forgotten_hash = content_hash`
-    yazip `parse` blogunu PENDING'e resetliyor (bkz. o fonksiyonun notu) --
-    bu filtre de `forgotten_hash == content_hash` olan (yani icerigi
-    unutuldugundan beri hic degismemis) kayitlari ATLAR. Boylece: (1) ayni
-    kayit sonsuza kadar tekrar islenmez (birikme biter), (2) icerik TEKRAR
-    degisirse (forgotten_hash artik guncel content_hash'le uyusmaz) dogal
-    olarak yeniden secilir, (3) `parse` sifirlandigi icin dosya geri
-    donerse (UNCHANGED) bile hash-kapisi dogru tetiklenir (sessiz veri
-    kaybi biter)."""
+    K-100 (2026-08-27 fix): `scan_status=DELETED` is STICKY (the folder scanner
+    never clears it, a schema decision) -- the natural consequence: this filter,
+    with NO gate, returns "every record currently DELETED", so records already
+    forgotten in the PAST (their derivatives removed) would be selected again
+    EVERY NIGHT. In the real world there is a second cost: when a source
+    disappears ONLY TEMPORARILY (an AGM network drive scanned HALF-way during a
+    move/copy -- the 2026-08-27 incident) forget_deleted_source REALLY runs, and
+    when the file comes BACK (SAME rel_path + SAME content_hash) the scanner
+    silently turns it to UNCHANGED -- but because `parse.parsed_from_hash` still
+    carries the SAME hash (forget never touched this field) parse/chunk/facts
+    would NEVER re-produce it (see the `parsed_from_hash != content_hash` gate in
+    `run_parse_pipeline.py`). `_forget_deleted_sources` now writes
+    `scan.forgotten_hash = content_hash` to every record it successfully forgets
+    and resets the `parse` block to PENDING (see that function's note) -- and this
+    filter SKIPS records whose `forgotten_hash == content_hash` (i.e. whose
+    content has not changed since it was forgotten). So: (1) the same record is
+    not processed forever (the buildup ends), (2) if the content CHANGES again
+    (forgotten_hash no longer matches the current content_hash) it is naturally
+    re-selected, (3) since `parse` is reset, if the file comes back (UNCHANGED)
+    the hash-gate still fires correctly (silent data loss ends)."""
     data = _read_document_nodes()
     if data is None:
         return []
@@ -254,19 +245,19 @@ def _forgettable_scan_records() -> list[tuple[str, str | None, str, str | None]]
         content_hash = scan.get("content_hash")
         forgotten_hash = scan.get("forgotten_hash")
         if forgotten_hash is not None and forgotten_hash == content_hash:
-            continue  # K-100: bu icerikle daha once zaten unutuldu, atla
+            continue  # K-100: already forgotten with this content before, skip
         result.append((rec["identity"]["doc_id"], rec.get("doc_type"), status, content_hash))
     return result
 
 
-#: K-100 (2026-08-27 fix): `classify_documents.py::blank_pipeline_state()`in
-#: `parse` alt-blogunun AYNI kopyasi -- o modul `medrag` paketinin DISINDA
-#: (path-tabanli lazy-import gerektirir, bkz. modul dosyasinin EN USTUNDEKI
-#: not), burasi icin sadece BU tek blogu tekrar tanimlamak, tum modulu
-#: import etmekten daha ucuz VE katman kuralini bozmuyor. Bilerek SADECE
-#: `parse` sifirlanir -- `chunk` KARAR-012 geregi zaten HER kosuda tum
-#: korpusu yeniden uretir (kendi hash-kapisi yok, sifirlamaya gerek yok),
-#: `facts` ise pending-rework kuyrugu uzerinden (asagida) kapsanir.
+#: K-100 (2026-08-27 fix): the SAME copy of the `parse` sub-block of
+#: `classify_documents.py::blank_pipeline_state()` -- that module is OUTSIDE the
+#: `medrag` package (requires a path-based lazy-import, see the note at the very
+#: TOP of the module file), so here it is cheaper to re-define this ONE block than
+#: to import the whole module, AND it does not break the layer rule. Deliberately
+#: ONLY `parse` is reset -- `chunk` per KARAR-012 already re-produces the whole
+#: corpus every run (no hash-gate of its own, no need to reset), `facts` is
+#: covered via the pending-rework queue (below).
 _BLANK_PARSE_STATE = {
     "parser": None, "parser_version": None, "status": "PENDING",
     "parsed_from_hash": None, "parsed_json_path": None,
@@ -275,41 +266,39 @@ _BLANK_PARSE_STATE = {
 
 
 def _forget_deleted_sources(*, dry_run: bool = False) -> list:
-    """N-19 (K-96 adim 2): `forget_deleted_source`u (N-06, yazilmis ama
-    hicbir yerden cagrilmiyordu) gece kosusuna baglar -- scan'DAN SONRA,
-    parse'DAN ONCE (`stage_parse`in EN BASI) calisir ki parse gitmis/degismis
-    bir dosyayi ESKI turevleriyle bosuna islemeye kalkmasin.
+    """N-19 (K-96 step 2): connects `forget_deleted_source` (N-06, written but
+    never called anywhere) to the nightly run -- runs AFTER scan, BEFORE parse
+    (at the VERY START of `stage_parse`) so parse does not uselessly process a
+    gone/changed file with its OLD derivatives.
 
-    `dry_run=True`: HICBIR SEY SILMEZ, yalniz hangi doc_id'lerin unutulacagini
-    basar (digger `_dry_run_*` raporlayicilarinin AYNI deseni).
+    `dry_run=True`: deletes NOTHING, only prints which doc_ids would be forgotten
+    (the SAME pattern as the other `_dry_run_*` reporters).
 
-    K-100 (2026-08-27 fix, K-98'in yerini alir): gercek yolda (dry_run=False)
-    HEM MODIFIED HEM DELETED doc_id'ler `_append_pending_rework_events` ile
-    KALICI kuyruga 'pending' yazilir -- eskiden DELETED bilerek DISLANIYORDU
-    ("kaynak sonsuza kadar gitti" varsayimiyla), ama 2026-08-27 olayi bu
-    varsayimin YANLIS olabildigini gosterdi: bir kaynak GECICI olarak
-    (tasima/kopyalama YARIDA kesilirken) DELETED gorunup gercekten
-    unutulabilir, sonra AYNI icerikle GERI donebilir. Boyle bir doc_id
-    pending-rework kuyrugunda oldugu icin `facts` onu scan_status'u
-    UNCHANGED'e donmus olsa bile tekrar dener (bkz. `_incremental_doc_ids`
-    ile birleseni, `_settle_pending_rework`). GERCEKTEN sonsuza kadar
-    gitmis bir kaynak icin bu ZARARSIZ: `resolve_codes` bos doner,
-    `_settle_pending_rework` onu 'orphaned' ile kuyruktan duser (bkz. o
-    fonksiyonun docstring'i) -- kendiliginden temizlenir, sonsuza kadar
-    yeniden denenmez.
+    K-100 (2026-08-27 fix, replaces K-98): on the real path (dry_run=False) BOTH
+    MODIFIED and DELETED doc_ids are written 'pending' to the PERSISTENT queue via
+    `_append_pending_rework_events` -- previously DELETED was deliberately EXCLUDED
+    (with the assumption "the source is gone forever"), but the 2026-08-27 incident
+    showed this assumption could be WRONG: a source can appear DELETED TEMPORARILY
+    (when a move/copy was cut off MIDWAY), be genuinely forgotten, then come BACK
+    with the SAME content. Since such a doc_id is in the pending-rework queue,
+    `facts` still retries it even if its scan_status turned back to UNCHANGED (see
+    its merge with `_incremental_doc_ids`, `_settle_pending_rework`). For a source
+    REALLY gone forever this is HARMLESS: `resolve_codes` returns empty,
+    `_settle_pending_rework` drops it from the queue as 'orphaned' (see that
+    function's docstring) -- it cleans itself up, never retried forever.
 
-    K-100 (2026-08-27 fix, devami): basariyla unutulan HER kayda
-    `document_nodes.json`da `scan.forgotten_hash = content_hash` yazilir
-    (bir sonraki gece `_forgettable_scan_records`in AYNI kaydi tekrar
-    secmemesi icin, bkz. o fonksiyonun K-100 notu) VE `parse` blogu
-    `_BLANK_PARSE_STATE`e resetlenir (dosya GERI donup UNCHANGED
-    sayildiginda `parsed_from_hash != content_hash` kapisinin dogru
-    tetiklenmesi icin -- forget_deleted_source'un KENDISI bu alanlara HIC
-    dokunmuyordu, sessiz veri kaybinin asil kaynagi buydu). Log da ayni
-    kosu icinde temizlenir: gercekten bir sey SILINEN kayitlar tek tek
-    basilir, hicbir sey bulunamayan (zaten temiz) kayitlar tek bir ozet
-    satirda toplanir -- eskiden HER kayit (cogunlugu no-op) ayri satir
-    basiyordu, bu da her gece yuzlerce anlamsiz satirla logu bogyordu."""
+    K-100 (2026-08-27 fix, continued): `scan.forgotten_hash = content_hash` is
+    written in `document_nodes.json` to every record successfully forgotten (so the
+    next night `_forgettable_scan_records` does not select the SAME record again,
+    see that function's K-100 note) AND the `parse` block is reset to
+    `_BLANK_PARSE_STATE` (so when the file comes back and is counted UNCHANGED,
+    the `parsed_from_hash != content_hash` gate fires correctly -- forget_deleted_source
+    ITSELF never touched these fields, and that was the real source of the silent
+    data loss). The log is also cleaned within the same run: records that really
+    removed something are printed one by one; records where nothing was found
+    (already clean) are grouped into a single summary line -- before, EVERY record
+    (mostly no-op) printed its own line, flooding the log with hundreds of
+    meaningless lines every night."""
     from medrag.pipeline.cli import run_parse_pipeline
 
     forgettable = _forgettable_scan_records()
@@ -385,24 +374,25 @@ def _forget_deleted_sources(*, dry_run: bool = False) -> list:
 
 
 def stage_parse(*, doc_id: str | None = None) -> dict:
-    """N-21: `processed_count`/`duration_seconds` gercekten OLCULUR --
-    `run_parse_pipeline.main()` artik islenen dokuman sayisini dondurur
-    (once `None` donuyordu, sayi ATILIYORDU); sure bu fonksiyonun kendi
-    `time.monotonic()` olcumu (forget_deleted_source adimi HARIC, yalniz
-    gercek parse cagrisini kapsar). `model_call_count` BURADA YOK -- parser
-    LLM/VLM cagri noktalarinin hicbirinde sayac yok, `nightly_report.py::
-    ParseSection.model_call_count`in `None` ("olculmedi") varsayilanina
-    dusuyor (N-21 bitti notu -- uydurmak yerine acikca eksik birak).
+    """N-21: `processed_count`/`duration_seconds` are really MEASURED --
+    `run_parse_pipeline.main()` now returns the number of documents processed
+    (before it returned `None`, the number was DISCARDED); the duration is this
+    function's own `time.monotonic()` measurement (EXCLUDING the
+    forget_deleted_source step, it only covers the real parse call).
+    `model_call_count` is NOT HERE -- the parser has no counter at any of its
+    LLM/VLM call points, it falls into `nightly_report.py::ParseSection.model_call_count`'s
+    default of `None` ("not measured") (N-21 end note -- leave it explicitly
+    missing rather than inventing it).
 
-    N-10 fix (2026-08-26): `failed_docs` -- `run_parse_pipeline.main()`
-    TEK TEK dokuman basarisizliklarini (bir sayfada VLM/OCR/LLM patlarsa
-    `parse.status='FAILED'` olur) donus degerinde HIC TASIMIYORDU, yalniz
-    TOPLAM islenen sayisini donuyordu (`counts` dict'i modul ICINDE
-    hesaplanip yalniz PRINT ediliyordu). `_build_nightly_report` bu listeyi
-    okuyup her satiri bir `FailureEntry`ye cevirir -- asama kendisi exception
-    FIRLATMASA bile (parse `main()` tek tek dokuman hatalarini YUTAR, tum
-    korpusu islemeye devam eder) tek bir FAILED dokuman `outcome()`i artik
-    `full_success`ten dusurur.
+    N-10 fix (2026-08-26): `failed_docs` -- `run_parse_pipeline.main()` did NOT
+    carry the per-document failures (a VLM/OCR/LLM blowup on a page sets
+    `parse.status='FAILED'`) in its return value AT ALL, it only returned the
+    TOTAL processed count (the `counts` dict was computed INSIDE the module and
+    only PRINTED). `_build_nightly_report` reads this list and turns each row
+    into a `FailureEntry` -- so even though the stage itself does NOT raise an
+    exception (parse `main()` SWALLOWS the per-document errors and keeps
+    processing the whole corpus), a single FAILED document now drops `outcome()`
+    from `full_success`.
 
     K-99 fix: `failed_docs` only carries FAILED records whose
     `parse.last_parsed` was UPDATED this run (`since=run_started_at`) --
@@ -428,18 +418,18 @@ def stage_parse(*, doc_id: str | None = None) -> dict:
 
 
 def _parse_failed_docs(*, since) -> list[dict]:
-    """N-10/K-99 fix (2026-08-26): `document_nodes.json`daki `parse.status ==
-    'FAILED'` VE `parse.last_parsed >= since` olan kayitlarin `(doc_id,
-    file_name, error)` listesi -- `stage_parse` kosusundan HEMEN SONRA
-    cagirilir (`run_parse_pipeline.main()` her dokumandan sonra dosyayi
-    diske yazar, bkz. o modulun `_run_phase`'i). `since` (kosu baslangici,
-    `datetime.now().astimezone()` -- `run_parse_pipeline.py::_now()` ile
-    AYNI tz-aware bicim) filtresi olmadan ONCEKI gecelerden kalma FAILED
-    "tombstone" kayitlar (kaynak dosya silinmis, kayit sonsuza kadar FAILED
-    kalan bir dokuman) HER GECE rapora girer ve `outcome()` asla `full_
-    success` DIYEMEZDI -- bkz. `stage_parse`in K-99 notu. `last_parsed`i
-    OLMAYAN (ya da ayristirilamayan) bir FAILED kayit -- gecerlilik suresi
-    BILINMEDIGI icin -- GUVENLI TARAFTA kalinir, rapora GIRMEZ."""
+    """N-10/K-99 fix (2026-08-26): the `(doc_id, file_name, error)` list of the
+    records in `document_nodes.json` with `parse.status == 'FAILED'` AND
+    `parse.last_parsed >= since` -- called RIGHT AFTER the `stage_parse` run
+    (`run_parse_pipeline.main()` writes the file to disk after every document, see
+    that module's `_run_phase`). Without the `since` filter (run start,
+    `datetime.now().astimezone()` -- the SAME tz-aware form as
+    `run_parse_pipeline.py::_now()`) the FAILED "tombstone" records left over from
+    PREVIOUS nights (a source file deleted, a record stuck at FAILED forever) would
+    enter the report EVERY NIGHT and `outcome()` could NEVER say `full_success` --
+    see `stage_parse`'s K-99 note. A FAILED record with NO `last_parsed` (or an
+    unparseable one) -- since its validity period is UNKNOWN -- stays on the SAFE
+    side and does NOT enter the report."""
     from datetime import datetime
 
     data = _read_document_nodes()
@@ -468,9 +458,9 @@ def _parse_failed_docs(*, since) -> list[dict]:
 
 
 def _all_chunks_node_counts(path: Path) -> dict[str, int]:
-    """`{doc_id: node_sayisi}` -- dosya yoksa/okunamazsa bos dict (KARAR-012:
-    her kosu `all_chunks.json`i BASTAN yazar, bu yuzden "once/sonra" farki
-    o dosyanin TAMAMININ diff'i anlamina gelir)."""
+    """`{doc_id: node_count}` -- an empty dict if the file is missing/unreadable
+    (KARAR-012: each run writes `all_chunks.json` FROM SCRATCH, so the
+    "before/after" difference means a diff of THAT whole file)."""
     if not path.is_file():
         return {}
     try:
@@ -481,14 +471,14 @@ def _all_chunks_node_counts(path: Path) -> dict[str, int]:
 
 
 def stage_chunk(*, doc_id: str | None = None) -> dict:
-    """N-21: `produced_count`/`per_document_counts`/`removed_count` gercek
-    OLCUM -- `run_chunk_pipeline.py` (chunker'i subprocess'liyor) bu
-    sayilari hic DONDURMUYOR, bu yuzden `all_chunks.json`in kosu ONCESI/
-    SONRASI durumu burada karsilastirilir (`resolve_all_chunks_path()` ile
-    AYNI dosya, ikinci bir yol-cozme mantigi yok -- bkz. o fonksiyonun
-    docstring'i). `produced_count` = kosu SONRASI toplam chunk (node)
-    sayisi; `removed_count` = kosu ONCESINDE olup SONRASINDA hic gorunmeyen
-    dokumanlarin (silinmis/artik chunk'lanamayan) chunk sayilarinin toplami."""
+    """N-21: `produced_count`/`per_document_counts`/`removed_count` are a REAL
+    MEASUREMENT -- `run_chunk_pipeline.py` (which subprocesses the chunker) never
+    RETURNS these numbers, so `all_chunks.json`'s pre-run/AFTER-run state is
+    compared here (with `resolve_all_chunks_path()` the SAME file, no second
+    path-resolution logic -- see that function's docstring). `produced_count` =
+    the total chunk (node) count AFTER the run; `removed_count` = the sum of the
+    chunk counts of documents present BEFORE the run but not visible after (deleted
+    / no longer chunkable)."""
     _doc_noop("chunk", "run_chunk_pipeline.py her kosuda tum korpusu "
               "yeniden isler (KARAR-012 ikinci surumu)", doc_id)
     from medrag.pipeline.cli import run_chunk_pipeline
@@ -507,23 +497,23 @@ def stage_chunk(*, doc_id: str | None = None) -> dict:
 
 
 def _env_flag(name: str) -> bool:
-    """`1/true/yes/on` -> True (bosluk ve buyuk-kucuk harf onemsiz). Gece
-    kosusunun env kapilarinin (`FACTS_PROCESS_ALL`, `FACTS_SKIP_EXISTING`)
-    TEK ayristirma noktasi -- ikisi ayri ayri yazilirsa biri "on"u kabul
-    ederken digeri etmeyebilir ve fark operatore SESSIZCE yansir."""
+    """`1/true/yes/on` -> True (whitespace and case irrelevant). The SINGLE parsing
+    point for the nightly run's env gates (`FACTS_PROCESS_ALL`, `FACTS_SKIP_EXISTING`)
+    -- if the two were parsed separately, one might accept "on" while the other
+    didn't and the difference would SILENTLY reach the operator."""
     return (os.environ.get(name) or "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def _incremental_doc_ids() -> list[str]:
-    """K-97 (2026-08-26 fix): bu geceki `facts` isinin BIRINCIL KAYNAGI --
-    `document_nodes.json`daki `scan_status IN ('NEW', 'MODIFIED')` kayitlarin
-    doc_id'leri. `_forgettable_scan_records` ile AYNI dosyayi okur (`_read_
-    document_nodes()` uzerinden), farkli bir kume ister: DELETED burada YOK
-    (kaynagi gitti, urun uretecek bir sey kalmadi -- `_forget_deleted_sources`
-    zaten turevlerini sildi), MOVED burada YOK (N-07: yer degisikligi
-    silme+ekleme SAYILMAZ, urun/facts etkilenmez), UNCHANGED burada YOK
-    (hicbir sey degismedi -- bu fonksiyonun TUM amaci, degismeyen bir gecede
-    facts'in SIFIR urun islemesini saglamak)."""
+    """K-97 (2026-08-26 fix): the PRIMARY SOURCE of tonight's `facts` work -- the
+    doc_ids of the `scan_status IN ('NEW', 'MODIFIED')` records in
+    `document_nodes.json`. Reads the SAME file as `_forgettable_scan_records` (via
+    `_read_document_nodes()`), but wants a different set: DELETED not here (its
+    source is gone, nothing left to produce a product -- `_forget_deleted_sources`
+    already deleted its derivatives), MOVED not here (N-07: a location change is
+    not delete+add, products/facts not affected), UNCHANGED not here (nothing
+    changed -- this function's ENTIRE purpose is to make facts process ZERO
+    products on a night where nothing changed)."""
     data = _read_document_nodes()
     if data is None:
         return []
@@ -535,12 +525,12 @@ def _incremental_doc_ids() -> list[str]:
 
 
 def _pending_rework_doc_ids() -> list[str]:
-    """K-98 (2026-08-26 fix, takip 1): pending-rework kuyrugundaki (append-
-    only JSONL, `core/paths.py::resolve_pending_rework_path`) doc_id'lerden
-    SON durumu 'pending' olanlar -- `chunk_owner_progress.jsonl` ile AYNI
-    disiplin: dosya SATIR SATIR okunur, HER doc_id icin SON kayit kazanir
-    (once 'pending' sonra 'done' gorulurse -- ya da tersi -- son yazilan
-    gecerli)."""
+    """K-98 (2026-08-26 fix, follow-up 1): the doc_ids in the pending-rework queue
+    (append-only JSONL, `core/paths.py::resolve_pending_rework_path`) whose LAST
+    status is 'pending' -- the SAME discipline as `chunk_owner_progress.jsonl`:
+    the file is read LINE BY LINE, and for each doc_id the LAST record wins (if
+    'pending' is seen then 'done' -- or the reverse -- the last written one is
+    valid)."""
     from medrag.core.paths import resolve_pending_rework_path
 
     path = resolve_pending_rework_path()
@@ -558,9 +548,9 @@ def _pending_rework_doc_ids() -> list[str]:
 
 
 def _append_pending_rework_events(events: list[dict]) -> None:
-    """K-98: pending-rework kuyruguna append-only olay ekler -- dosya HICBIR
-    ZAMAN UZERINE YAZILMAZ/KISALTILMAZ (`chunk_owner_progress.jsonl` ile AYNI
-    disiplin), okuma tarafi (`_pending_rework_doc_ids`) SON kaydi esas alir."""
+    """K-98: appends an append-only event to the pending-rework queue -- the file is
+    NEVER OVERWRITTEN/TRUNCATED (the SAME discipline as `chunk_owner_progress.jsonl`),
+    the reading side (`_pending_rework_doc_ids`) bases on the LAST record."""
     if not events:
         return
     from medrag.core.paths import resolve_pending_rework_path
@@ -573,12 +563,11 @@ def _append_pending_rework_events(events: list[dict]) -> None:
 
 
 def _settle_pending_rework(con, load_report: dict) -> None:
-    """K-98 (2026-08-26 fix, takip 1): bu kosuda `load` BASARIYLA biten
-    urunlerin ait oldugu pending doc_id'ler kuyruktan duser (append-only
-    'done' olayi). Bir doc_id'nin `run_full.resolve_codes(con, doc_id=...)`
-    ile cozulen urunlerinden HERHANGI BIRI bu kosuda denenmediyse ya da
-    hata ile sonuclandiysa (`load_to_db.main()`in `reports[]`indeki `error`
-    field) the doc_id STAYS on the queue -- partial success is NOT
+    """K-98 (2026-08-26 fix, follow-up 1): the pending doc_ids whose products were
+    LOADED successfully this run drop from the queue (append-only 'done' event). If
+    ANY ONE of the products of a doc_id resolved via `run_full.resolve_codes(con, doc_id=...)`
+    was not attempted this run, or ended with an error (the `error` field in
+    `load_to_db.main()`'s `reports[]`) the doc_id STAYS on the queue -- partial success is NOT
     sufficient, the next night retries. An empty `load_report` (e.g.
     `stage_load` had an empty `codes` and so never called
     `load_to_db.main()`) drops NOTHING.
@@ -617,55 +606,55 @@ def _settle_pending_rework(con, load_report: dict) -> None:
 
 
 def _resolve_incremental_codes(con, *, doc_id: str | None) -> tuple[list[str], bool]:
-    """N-22 + K-97/K-98 (2026-08-26 fix): `--doc` + `FACTS_PROCESS_ALL` kacis
-    kapisinin, VE varsayilan (kacis kapisi yok) yolda urun seciminin TEK
-    cozumleme noktasi -- `stage_facts` VE `stage_load` (facts'in urettigi
-    JSON'lari AYNI urun kumesi icin specs.db'ye yazar) bunu PAYLASIR.
-    `run_products` specs.db'ye HICBIR SEY YAZMADIGI icin (bkz. run_full.py
-    modul docstring'i) `facts` ile `load` arasinda DB durumu degismez -- iki
-    cagri AYNI kumeyi vermek ZORUNDA, bu yuzden kod TEK yerde (iki ayri kopya
-    sessizce ayrisirsa `load` facts'in isledigi urunlerden FARKLI bir kumeyi
-    yazar).
+    """N-22 + K-97/K-98 (2026-08-26 fix): the SINGLE resolution point for the
+    `--doc` + `FACTS_PROCESS_ALL` escape hatch, AND for product selection on the
+    default (no escape hatch) path -- `stage_facts` AND `stage_load` (which writes
+    the JSONs facts produces into specs.db for the SAME product set) SHARE it.
+    Since `run_products` writes NOTHING to specs.db (see run_full.py's module
+    docstring) the DB state does not change between `facts` and `load` -- the two
+    calls MUST give the same set, so the code lives in ONE place (if two separate
+    copies silently diverged, `load` would write a set DIFFERENT from the products
+    facts processed).
 
-    Varsayilan yolda (kacis kapisi yok) `codes` UC KAYNAGIN BIRLESIMI:
-      1. **Birincil** -- NEW + MODIFIED dokumanlara sahip urunler
-         (`_incremental_doc_ids()`, K-97). Buyuk cogunlugu bu karsilar.
-      2. **K-98 (bu kosuda EKLENDI, takip 1)** -- pending-rework kuyrugundaki
-         doc_id'lere sahip urunler (`_pending_rework_doc_ids()`). K-97'nin
-         "bir sonraki gece ayni dokuman HALA MODIFIED gorunur, kendiliginden
-         duzelir" varsayimi YANLIS cikti: `classify_documents.py::
-         scan_status_for` MODIFIED/UNCHANGED kararini BIR ONCEKI TARAMANIN
-         kaydettigi hash'e karsi verir ve tarama YENI hash'i HEMEN kaydeder
-         -- yani `_forget_deleted_sources` (parse basi) ile bu fonksiyonun
-         cagrildigi `facts`/`load` (zincirin sonlari) arasinda kosu PATLARSA,
-         dokuman ERTESI GECE UNCHANGED gorunur ve BIR DAHA HIC SECILMEZ:
-         sessiz, KALICI veri kaybi (2026-08-26 kosusu tam bu araliktaki
-         `facts` asamasinda durduruldu -- varsayimsal degil). Kuyruk bu
-         araligi KOSUDAN SAGKALAN bir yerde tutar (bkz. `_forget_deleted_
-         sources`in K-98 notu, `_settle_pending_rework`).
-      3. **K-96'nin denetim uclerinin ikincil AG olarak GERI EKLENMESI (bu
-         kosuda, takip 2+3)** -- `staleness_audit.stale_product_codes`
+    On the default path (no escape hatch) `codes` is the UNION OF THREE SOURCES:
+      1. **Primary** -- products owned by NEW + MODIFIED documents
+         (`_incremental_doc_ids()`, K-97). This covers the large majority.
+      2. **K-98 (ADDED this run, follow-up 1)** -- products owned by the doc_ids
+         in the pending-rework queue (`_pending_rework_doc_ids()`). K-97's
+         assumption that "the next night the same document is STILL MODIFIED and
+         fixes itself" turned out WRONG: `classify_documents.py::scan_status_for`
+         decides MODIFIED/UNCHANGED against the hash a PREVIOUS scan saved, and the
+         scan saves the NEW hash IMMEDIATELY -- so if the run CRASHES between
+         `_forget_deleted_sources` (parse start) and where this function is called
+         (`facts`/`load`, the end of the chain), the document appears UNCHANGED the
+         NEXT NIGHT and is NEVER SELECTED AGAIN: silent, PERMANENT data loss (the
+         2026-08-26 run was stopped exactly in this range, at the `facts` stage --
+         not hypothetical). The queue keeps this range in a place that SURVIVES the
+         run (see `_forget_deleted_sources`'s K-98 note, `_settle_pending_rework`).
+      3. **K-96's audit endpoints RE-ADDED as the SECONDARY net (this run,
+         follow-up 2+3)** -- `staleness_audit.stale_product_codes`
          (`dangling_evidence`/`empty_evidence`/`stale_extractor_version`).
-         Bu UC OLCUT birlikte "mutabakat agi"dir, BIRINCIL SECICI degildir:
-         (a) `stale_extractor_version` olmadan `facts_version` (prompt/sema/
-         esik) ilerledikten sonra HICBIR urun yeniden cikarilmiyordu --
-         hicbir dokuman degismemis olsa da bu SECICI o kurulumda BOS
-         DONMEMELI (regresyon, takip 2). (b) `dangling_evidence`/`empty_
-         evidence` olmadan KAYNAK DEGISMEDEN chunker mantigi/surumu degisip
-         chunk sha'lari degisirse (dokumanlar UNCHANGED KALIR) evidence artik
-         var olmayan chunk'lara isaret eder ve HIC TAZELENMEZ -- bu "yeniden
-         bolme kor noktasi" (takip 3). K-97'nin KALDIRDIGI dorduncu kural
-         ("kaniti hic bulunmayan yeni chunk'a sahip urunler") BURAYA GERI
-         EKLENMEDI -- o, fact URETMEYEN HER chunk'i sonsuza kadar "islenmemis"
-         gorup HER GECE ~TUM korpusu (218 urun) isaretleyen, KOKTEN FARKLI ve
-         yanlis bir olcuttu (K-97 kok nedeni); `stale_product_codes`in UC
-         olcutu ONU icermez, dar ve sinirli kalir.
+         These THREE criteria together are the "reconciliation net", NOT the primary
+         selector: (a) without `stale_extractor_version`, after `facts_version`
+         (prompt/schema/threshold) advanced NO product was ever re-produced --
+         even if no document changed, this selector must NOT return EMPTY in that
+         setup (regression, follow-up 2). (b) without
+         `dangling_evidence`/`empty_evidence`, if the chunker logic/version changes
+         WITHOUT the source changing and chunk sha's change (documents stay
+         UNCHANGED), evidence now points at chunks that no longer exist and NEVER
+         REFRESHES -- this is the "re-chunking blind spot" (follow-up 3). The
+         fourth rule K-97 REMOVED ("products with a new chunk that has no evidence
+         at all") was NOT RE-ADDED HERE -- it saw EVERY chunk that produces no fact
+         as "unprocessed" forever and marked ~ALL the corpus (218 products) EVERY
+         NIGHT, a FUNDAMENTALLY DIFFERENT and wrong criterion (K-97's root cause);
+         `stale_product_codes`'s three criteria do not include it, staying narrow
+         and bounded.
 
-    Kabul: hicbir dokuman degismedigi, pending-rework kuyrugu bos oldugu VE
-    `facts_version`/chunk kumesi degismedigi bir gecede bu fonksiyon BOS
-    liste doner, facts SIFIR urun isler.
+    Acceptance: on a night where no document changed, the pending-rework queue is
+    empty, and `facts_version`/the chunk set did not change, this function returns
+    an EMPTY list and facts processes ZERO products.
 
-    Doner: `(codes, process_all)`."""
+    Returns: `(codes, process_all)`."""
     from medrag.pipeline.facts import run_full
 
     process_all = _env_flag("FACTS_PROCESS_ALL")
@@ -686,17 +675,17 @@ def _resolve_incremental_codes(con, *, doc_id: str | None) -> tuple[list[str], b
 
 
 def stage_ownership(*, doc_id: str | None = None) -> dict | None:
-    """N-22: `catalog_chunk_ownership/build_all.py`'nin belgeledigi
-    programatik giris noktasi (`main(argv=[])`) uzerinden kosar -- bkz. modul
-    docstring'i. Zincire baglanmadan `facts`in cok-sahipli fan-out daraltmasi
-    (`chunk_ownership_index`) HICBIR ZAMAN dolmuyordu, katalog/brosur gibi
-    dokumanlar TAMAMEN dislaniyordu (`docs_excluded_fanout`).
+    """N-22: runs via the documented programmatic entry point of
+    `catalog_chunk_ownership/build_all.py` (`main(argv=[])`) -- see the module
+    docstring. Without being connected to the chain, `facts`' multi-owner fan-out
+    narrowing (`chunk_ownership_index`) was NEVER filled; documents like
+    catalog/brochure were EXCLUDED entirely (`docs_excluded_fanout`).
 
-    `--doc` bu asamada NO-OP: build_all.py dokuman-bazli filtre
-    desteklemiyor, HER KOSU tum korpusu (tek+cok-sahipli dokuman) tarar --
-    kendi checkpoint/devam mekanizmasi var (Ctrl+C ile kesilirse bir SONRAKI
-    kosu kaldigi yerden devam eder, `chunk_ownership_all.json` bozulmadan
-    kalir)."""
+    `--doc` is a NO-OP in this stage: build_all.py does not support a doc-level
+    filter; EVERY run scans the whole corpus (single+multi-owner documents) -- it
+    has its own checkpoint/resume mechanism (if interrupted with Ctrl+C the NEXT
+    run continues from where it left off, `chunk_ownership_all.json` remains
+    intact)."""
     _doc_noop("ownership", "build_all.py dokuman-bazli filtre desteklemiyor, "
               "tum korpus (tek+cok-sahipli dokuman) taranir", doc_id)
     from medrag.pipeline.facts.catalog_chunk_ownership import build_all
@@ -705,18 +694,19 @@ def stage_ownership(*, doc_id: str | None = None) -> dict | None:
 
 
 def stage_facts(*, doc_id: str | None = None) -> dict:
-    """`run_full.py`'nin belgeledigi programatik giris noktasi
-    (`run_products`) uzerinden kosar -- bkz. modul docstring'i.
+    """Runs via the documented programmatic entry point of `run_full.py`
+    (`run_products`) -- see the module docstring.
 
-    K-97/K-98 (2026-08-26 fix, eski N-20/K-96 adim 3'un YERINE): urun secimi
-    `resolve_codes(con)` (specs.db'deki TUM urunler) DEGIL -- NEW+MODIFIED
-    dokuman birlesimi (birincil) + pending-rework kuyrugu (K-98) + `staleness_
-    audit.stale_product_codes`in UC olcutu (ikincil mutabakat agi) BIRLESIMI
-    (bkz. `_resolve_incremental_codes`in docstring'i, TUM gerekce orada).
-    **KRITIK KISIT**: bu SADECE hangi urunlerin islenecegini daraltir --
-    secilen urun icin yazma yolu DEGISMEZ, `run_products` -> `load_product_
-    incremental` yine `_reset_product` (force) ile TAM reset yapar (K-96,
-    2026-08-06 olcumu: nokta atisi/kismi silme DENENMEMELI).
+    K-97/K-98 (2026-08-26 fix, replaces the old N-20/K-96 step 3): product
+    selection is NOT `resolve_codes(con)` (ALL products in specs.db) -- it is the
+    UNION of the NEW+MODIFIED document set (primary) + the pending-rework queue
+    (K-98) + `staleness_audit.stale_product_codes`'s three criteria (secondary
+    reconciliation net) (see `_resolve_incremental_codes`'s docstring, the whole
+    rationale is there). **CRITICAL CONSTRAINT**: this only NARROWS which products
+    are processed -- for the selected product the write path does NOT change;
+    `run_products` -> `load_product_incremental` still does a FULL reset via
+    `_reset_product` (force) (K-96, 2026-08-06 measurement: pinpoint/partial
+    deletion must NOT be attempted).
 
     Escape hatches (`--all` from K-96, also kept in K-97): `--doc`
     (manual intervention, always existed) AND `FACTS_PROCESS_ALL=1`
@@ -732,12 +722,12 @@ def stage_facts(*, doc_id: str | None = None) -> dict:
     what this gate is for). The only legitimate use is manual resume: if
     the nightly run was killed mid-`facts`, the next run sees the same set
     as stale and would redo all the LLM work.
-    yerden surdurmek.
+    to resume from that point.
 
-    N-22: urun secimi (`codes`) artik `_resolve_incremental_codes()`
-    uzerinden -- `stage_load` (bu asamanin urettigi JSON'lari specs.db'ye
-    yazan asama) AYNI fonksiyonu cagirir, iki asama arasinda urun kumesi
-    ASLA sessizce ayrismaz."""
+    N-22: product selection (`codes`) now goes through `_resolve_incremental_codes()`
+    -- `stage_load` (the stage that writes this stage's JSONs into specs.db) calls
+    the SAME function, so the product set NEVER silently diverges between the two
+    stages."""
     from dotenv import load_dotenv
 
     from medrag.pipeline.facts import run_full
@@ -776,26 +766,26 @@ def stage_facts(*, doc_id: str | None = None) -> dict:
 
 
 def stage_load(*, doc_id: str | None = None) -> dict:
-    """N-22: `load_to_db.py`'nin belgeledigi programatik giris noktasi
-    (`main(argv=[...])`) uzerinden kosar. Bu asama baglanmadan `stage_facts`
-    yalniz `results/<CODE>.json` URETIYORDU -- `run_products` specs.db'ye
-    HICBIR SEY YAZMAZ (bkz. o fonksiyonun docstring'i), yani gece kosusu
-    DB'de tek satir bile degistirmiyordu.
+    """N-22: runs via the documented programmatic entry point of `load_to_db.py`
+    (`main(argv=[...])`). Without this stage connected, `stage_facts` only
+    PRODUCED `results/<CODE>.json` -- `run_products` writes NOTHING to specs.db
+    (see that function's docstring), so the nightly run changed not even a single
+    row in the DB.
 
-    `--doc <id>` verilmisse `load_to_db.py --doc-id <id>` ile cagrilir --
-    `load_product_incremental` (O-12) yolu, doc_id'yi KULLANAN urunleri
-    REPLACE semantigiyle isler (bkz. `load_to_db.py::load_product_
-    incremental` docstring'i).
+    If `--doc <id>` is given it is called with `load_to_db.py --doc-id <id>` --
+    the `load_product_incremental` (O-12) path, which processes the products USING
+    that doc_id with REPLACE semantics (see `load_to_db.py::load_product_incremental`
+    docstring).
 
-    Verilmemisse: `stage_facts`in ISLEDIGI AYNI urun kumesi `_resolve_
-    incremental_codes()` ile YENIDEN cozulur (facts specs.db'ye yazmadigi
-    icin DB durumu degismedi, ayni girdi ayni kumeyi verir) ve `--models
-    <kume> --force` ile cagirilir. **KRITIK**: `--force`SUZ `load_to_db.py`
-    zaten-yuklenmis urunleri "already loaded" diye ATLAR -- facts'in
-    bayatlik kapisinden GECEN urunler her gece ZATEN yuklenmis olur, `--force`
-    OLMADAN bu asama HICBIR SEY yazmazdi (K-96'nin "TAM reset" ilkesiyle
-    AYNI gerekce, bkz. `stage_facts` docstring'i). `--force` + `--models`,
-    `load_product_incremental`in doc_id'siz dalinin (`load_product(force=
+    If not given: the SAME product set `stage_facts` processed is RE-resolved with
+    `_resolve_incremental_codes()` (facts did not write to specs.db, so the DB state
+    did not change; same input gives the same set) and called with `--models <set>
+    --force`. **CRITICAL**: without `--force`, `load_to_db.py` SKIPS already-loaded
+    products as "already loaded" -- the products passing facts' staleness gate are
+    ALREADY loaded every night, so WITHOUT `--force` this stage would write NOTHING
+    (the SAME rationale as K-96's "full reset" principle, see `stage_facts` docstring).
+    `--force` + `--models`,
+    `load_product_incremental`'s doc_id-less branch (`load_product(force=
     True) is EXACTLY EQUIVALENT to `load_product_incremental` (O-12) --
     see that function's docstring. There is NO way to call
     `load_product_incremental` without doc_id.
@@ -810,8 +800,8 @@ def stage_load(*, doc_id: str | None = None) -> dict:
     docstring). Both branches (manual `--doc` AND automatic `codes`) do
     this -- both answer the same "did the product load OK?" question.
     The empty-`codes` branch also calls settle
-    cagrilir (2026-08-26 gece kosusu incelemesi): sahipsiz pending
-    kayitlar ancak boyle duser, `load_to_db.main()`siz bir gecede bile."""
+    (2026-08-26 nightly run inspection): orphaned pending records only drop
+    this way, even on a night without `load_to_db.main()`."""
     from medrag.pipeline.facts import load_to_db, run_full
 
     if doc_id:
@@ -825,12 +815,12 @@ def stage_load(*, doc_id: str | None = None) -> dict:
 
     if not codes:
         print("load: islenecek urun yok (facts asamasi hicbir urunu bayat bulmadi)")
-        # Sahipsiz pending kayitlari (resolve_codes BOS donen doc'ler) hicbir
-        # kosunun `codes` kumesine GIREMEZ -- settle edilmedikleri muddetce
-        # kuyrukta sonsuza kadar kalirlar (bkz. `_settle_pending_rework`un
-        # sahipsiz-doc notu). Bos `reports` verilir: URUNLU pending doc'ler
-        # denenmedikleri icin dogal olarak kuyrukta KALIR, yalniz sahipsizler
-        # 'orphaned' ile duser.
+        # Orphaned pending records (doc_ids where resolve_codes returns EMPTY) can
+        # NEVER enter any run's `codes` set -- until settled they stay in the queue
+        # forever (see `_settle_pending_rework`'s ownerless-doc note). An empty
+        # `reports` is given: the WITH-products pending docs naturally STAY in the
+        # queue because they were not attempted; only the ownerless ones drop with
+        # 'orphaned'.
         _settle_pending_rework(con, {"reports": []})
         return {"n_products": 0}
 
@@ -842,27 +832,25 @@ def stage_load(*, doc_id: str | None = None) -> dict:
 
 
 def stage_vectorize(*, doc_id: str | None = None):
-    """N-21: donus degeri artik duz `int` DEGIL -- `calistir()` (bkz. o
-    fonksiyonun `VectorizeRunStats` dataclass'i) `points_written`/
-    `embedding_model`i de tasir, gecelik rapor bunlari GERCEK sayi olarak
-    kullanir. `points_deleted`/`total_points_after` o dataclass'ta YOK
-    (bilinen sinir, bkz. dataclass docstring'i) -- rapor bu ikisini
-    `None` ("olculmedi") yazar.
+    """N-21: the return value is no longer a plain `int` -- `calistir()` (see its
+    `VectorizeRunStats` dataclass) also carries `points_written`/`embedding_model`,
+    and the nightly report uses those as REAL numbers. `points_deleted`/
+    `total_points_after` are NOT in that dataclass (known limitation, see the
+    dataclass docstring) -- the report writes both as `None` ("not measured").
 
-    2026-08-27 fix: `vectorize_cli.calistir()` kendi `logging.basicConfig`ini
-    KURMUYOR (o yalniz `main()`de var, bkz. cli.py) -- `run_nightly.py` bu
-    fonksiyonu DOGRUDAN cagirdigi icin (main() degil) INFO/ERROR loglari
-    HICBIR YERE yazilmiyordu (2026-08-26 kosusunda `=== vectorize ===`
-    basligindan sonra TEK satir bile yoktu -- QDRANT_URL eksik olsa,
-    embedder kurulamasa, hic kapsam bulunamasa BILE sessiz kalirdi).
-    AYRICA eskiden `VectorizeRunStats.exit_code` HIC KONTROL EDILMIYORDU --
-    `exit_code=2` (yapilandirma/baglanti hatasi) ya da `exit_code=1` (bir
-    kapsam basarisiz) durumunda bile asama basariyla `return` ediyordu,
-    `run()`un `except Exception` yakalamasi (bkz. o fonksiyonun N-21 notu)
-    hic tetiklenmiyordu, gece raporu bunu `full_success`un bir PARCASI
-    sayiyordu. Artik loglama kurulur VE `exit_code != 0` acikca bir
-    istisnaya cevrilir -- boylece asama BASARISIZLIGI raporda `failures[]`
-    olarak GORUNUR, sessizce yutulmaz."""
+    2026-08-27 fix: `vectorize_cli.calistir()` does NOT set up its own
+    `logging.basicConfig` (that is only in `main()`, see cli.py) -- since
+    `run_nightly.py` calls this function DIRECTLY (not main()) the INFO/ERROR logs
+    were written NOWHERE (in the 2026-08-26 run there was not a SINGLE line after
+    the `=== vectorize ===` header -- even if QDRANT_URL was missing, the embedder
+    could not be built, or no scope was found, it stayed silent). ALSO,
+    previously `VectorizeRunStats.exit_code` was NEVER CHECKED -- even with
+    `exit_code=2` (config/connection error) or `exit_code=1` (a scope failed) the
+    stage returned successfully, `run()`'s `except Exception` catch (see that
+    function's N-21 note) never triggered, and the nightly report counted it as a
+    PART of `full_success`. Now logging is set up AND `exit_code != 0` is
+    explicitly turned into an exception -- so a stage FAILURE shows up in the
+    report's `failures[]`, no longer silently swallowed."""
     _doc_noop("vectorize", "kapsam-bazli calisir, dokuman-bazli filtre yok",
               doc_id)
     from medrag.pipeline.vectorize import cli as vectorize_cli
@@ -876,22 +864,22 @@ def stage_vectorize(*, doc_id: str | None = None):
     return stats
 
 
-# --- N-03: kuru kosu raporlayicilari -----------------------------------
+# --- N-03: dry-run reporters -------------------------------------------
 #
-# Her biri HICBIR DOSYAYA YAZMAZ, AG CAGRISI (Ollama/VLM/Qdrant/embedding)
-# YAPMAZ -- yalniz mevcut disk durumunu okuyup "bu asama calissaydi neyi
-# islerdi" kumesini hesaplar ve basar. `run()` dry_run=True oldugunda
-# `stage_*` yerine bunlari cagirir (bkz. asagidaki `_DRY_RUN_FUNC_NAMES`).
+# Each writes NO FILE and makes NO NETWORK CALL (Ollama/VLM/Qdrant/embedding) --
+# it only reads the current disk state and computes+prints the set "what would
+# this stage process if it ran". `run()` calls these instead of `stage_*` when
+# dry_run=True (see `_DRY_RUN_FUNC_NAMES` below).
 
 
 def _dry_run_scan(*, doc_id: str | None = None) -> None:
     _doc_noop("scan", "classify_documents.py dokuman-bazli filtre "
               "desteklemiyor, KARAR-001 -- tum BELGELER agaci taranir", doc_id)
     module = _load_classify_documents()
-    # classify_documents.main(dry_run=True): AYNI tarama/eslesme/scan_status
-    # diff'i hesaplanir (NEW/UNCHANGED/MODIFIED/MOVED/DELETED), output_path'e
-    # HICBIR SEY YAZILMAZ -- N-03'un "gercek kosuyla ayni kumeleri listeler"
-    # kabul kriteri budur.
+    # classify_documents.main(dry_run=True): the SAME scan/match/scan_status diff
+    # is computed (NEW/UNCHANGED/MODIFIED/MOVED/DELETED), but NOTHING is written to
+    # output_path -- this is N-03's "lists the same sets as a real run" acceptance
+    # criterion.
     module.main(dry_run=True)
 
 
@@ -899,7 +887,7 @@ def _dry_run_parse(*, doc_id: str | None = None) -> None:
     _doc_noop("parse", "run_parse_pipeline.py dokuman-bazli filtre "
               "desteklemiyor, tum bekleyen korpus islenir", doc_id)
     from medrag.pipeline.cli import run_parse_pipeline
-    run_parse_pipeline._bootstrap()  # yalniz .env'den yol/DOC_TYPES cozer, ag cagrisi yok
+    run_parse_pipeline._bootstrap()  # only resolves paths/DOC_TYPES from .env, no network call
     _forget_deleted_sources(dry_run=True)
     if run_parse_pipeline.DOC_TYPES:
         print(f"parse: doc_type filter: {', '.join(sorted(run_parse_pipeline.DOC_TYPES))}")
@@ -910,11 +898,11 @@ def _dry_run_parse(*, doc_id: str | None = None) -> None:
 
 
 def _dry_run_chunk(*, doc_id: str | None = None) -> None:
-    """KARAR-012 geregi chunk her kosuda TUM korpusu yeniden isler -- "islenecek
-    kume" ile "girdi klasorundeki tum dokumanlar" ayni sey. Girdi klasoru
-    var olan `run_chunk_pipeline.main()`in kullandigi AYNI iki env
-    degiskeninden (`CHUNKER_INPUT_DIR`/`PARSED_OUTPUT_DIR`) cozulur, ama
-    subprocess (`python -m medrag.pipeline.chunker`) HIC baslatilmaz."""
+    """Per KARAR-012, the chunk stage re-processes the WHOLE corpus every run --
+    "the set to process" and "all documents in the input folder" are the same thing.
+    The input folder is resolved from the SAME two env vars
+    (`CHUNKER_INPUT_DIR`/`PARSED_OUTPUT_DIR`) that `run_chunk_pipeline.main()` uses,
+    but the subprocess (`python -m medrag.pipeline.chunker`) is NEVER started."""
     _doc_noop("chunk", "run_chunk_pipeline.py her kosuda tum korpusu "
               "yeniden isler (KARAR-012 ikinci surumu)", doc_id)
     from medrag.pipeline.cli import run_chunk_pipeline
@@ -933,11 +921,10 @@ def _dry_run_chunk(*, doc_id: str | None = None) -> None:
 
 
 def _dry_run_ownership(*, doc_id: str | None = None) -> None:
-    """`build_all.split_ownership_work` disinda HICBIR SEY cagirmaz -- o
-    fonksiyonun KENDI docstring'i (O-06 kabul kriteri) `_chat_ollama`/
-    `_tag_chunk_llm`i HIC IMPORT ETMEDIGINI/CAGIRMADIGINI garanti eder, bu
-    yuzden burada LLM/Ollama istegi YAPISAL olarak imkansiz -- ayrica bir
-    mock/monkeypatch disiplinine ihtiyac yok."""
+    """Calls NOTHING besides `build_all.split_ownership_work` -- that function's OWN
+    docstring (O-06 acceptance criterion) guarantees it never IMPORTS/CALLS
+    `_chat_ollama`/`_tag_chunk_llm`, so an LLM/Ollama request here is STRUCTURALLY
+    impossible -- no need for a mock/monkeypatch discipline either."""
     _doc_noop("ownership", "build_all.py dokuman-bazli filtre desteklemiyor, "
               "tum korpus (tek+cok-sahipli dokuman) taranir", doc_id)
     from medrag.pipeline.facts.catalog_chunk_ownership import build_all
@@ -968,8 +955,8 @@ def _dry_run_ownership(*, doc_id: str | None = None) -> None:
 
 
 def _dry_run_facts(*, doc_id: str | None = None) -> None:
-    """`resolve_codes` disinda HICBIR SEY cagirmaz -- `run_products` (ve
-    dolayisiyla LLM/Ollama istegi) hic tetiklenmez."""
+    """Calls NOTHING besides `resolve_codes` -- `run_products` (and therefore an
+    LLM/Ollama request) never triggers."""
     from dotenv import load_dotenv
 
     from medrag.pipeline.facts import run_full
@@ -984,11 +971,11 @@ def _dry_run_facts(*, doc_id: str | None = None) -> None:
 
 
 def _dry_run_load(*, doc_id: str | None = None) -> None:
-    """`_resolve_incremental_codes` disinda HICBIR SEY cagirmaz -- `load_to_db.
-    main` (ve dolayisiyla specs.db'ye GERCEK yazma) hic tetiklenmez. `facts`in
-    dry-run raporundan (basitce `resolve_codes`) FARKLI olarak burada K-96
-    bayatlik kapisinin GERCEK sonucu kullanilir -- `stage_load`in gercek
-    kosuda isleyecegi kumeyi DAHA DOGRU yansitir."""
+    """Calls NOTHING besides `_resolve_incremental_codes` -- `load_to_db.main` (and
+    therefore REAL writing to specs.db) never triggers. DIFFERENT from the `facts`
+    dry-run report (which simply uses `resolve_codes`), here the REAL result of the
+    K-96 staleness gate is used -- it reflects the set `stage_load` would process in
+    a real run MORE ACCURATELY."""
     from medrag.pipeline.facts import run_full
 
     if doc_id:
@@ -1004,10 +991,10 @@ def _dry_run_load(*, doc_id: str | None = None) -> None:
 
 
 def _dry_run_vectorize(*, doc_id: str | None = None) -> None:
-    """Embedder/Qdrant istemcisi HIC KURULMAZ (ag cagrisi riski) -- yalniz
-    diskteki chunk kapsamlari sayilir, hangilerinin bayat oldugu (staleness
-    state karsilastirmasi embedder'a bagli oldugu icin) bu raporun kapsami
-    DEGIL (bilinen sinir)."""
+    """The embedder/Qdrant client is NEVER built (network-call risk) -- only the
+    chunk scopes on disk are counted; which are stale (the staleness state
+    comparison depends on the embedder) is OUT OF SCOPE for this report (known
+    limitation)."""
     _doc_noop("vectorize", "kapsam-bazli calisir, dokuman-bazli filtre yok",
               doc_id)
     from medrag.pipeline.vectorize.discover import discover_chunk_scopes
@@ -1025,11 +1012,10 @@ def _dry_run_vectorize(*, doc_id: str | None = None) -> None:
           "kurulumu gerektirir, bu rapor kapsami DEGIL -> YAZILMAYACAK")
 
 
-# Ad -> modul-seviyesi fonksiyon adi (fonksiyon NESNESI degil): `run()` bunu
-# her cagrida `globals()` uzerinden cozer, boylece testler `run_nightly.
-# stage_parse` gibi bir adi monkeypatch/Mock ile degistirdiginde `run()`
-# gercekten o degistirilmis surumu gorur (import-zamaninda donmus bir dict
-# olsaydi patch gorunmezdi).
+# name -> module-level function name (NOT the function OBJECT): `run()` resolves
+# this via `globals()` at each call, so when tests monkeypatch/Mock a name like
+# `run_nightly.stage_parse` `run()` really sees the patched version (if it were a
+# dict frozen at import time the patch would be invisible).
 _STAGE_FUNC_NAMES = {
     "scan": "stage_scan",
     "parse": "stage_parse",
@@ -1040,9 +1026,9 @@ _STAGE_FUNC_NAMES = {
     "vectorize": "stage_vectorize",
 }
 
-# N-03: dry_run=True'da her `stage_*` yerine bunun karsiligi cagrilir --
-# ayni `globals()` cozumleme deseni, ayni sebep (testler tekil fonksiyonlari
-# monkeypatch edebilsin).
+# N-03: on dry_run=True its counterpart is called instead of each `stage_*` --
+# the same `globals()` resolution pattern, the same reason (tests can monkeypatch
+# single functions).
 _DRY_RUN_FUNC_NAMES = {
     "scan": "_dry_run_scan",
     "parse": "_dry_run_parse",
@@ -1064,9 +1050,9 @@ def _stage_index(name: str) -> int:
 
 
 def plan(*, stage: str | None = None, from_stage: str | None = None) -> list[str]:
-    """Calistirilacak asama listesi. `--stage`/`--from` birlikte verilemez
-    (biri "yalniz bu", digeri "buradan sona kadar" -- ayni anda ikisi
-    anlamsiz)."""
+    """The list of stages to run. `--stage`/`--from` cannot be given together
+    (one means "only this", the other "from here to the end" -- both at once is
+    meaningless)."""
     if stage and from_stage:
         raise SystemExit("--stage ve --from birlikte verilemez")
     if stage:
@@ -1081,20 +1067,20 @@ def plan(*, stage: str | None = None, from_stage: str | None = None) -> list[str
 def run(*, stage: str | None = None, from_stage: str | None = None,
         doc_id: str | None = None, dry_run: bool = False,
         collect: dict | None = None) -> list[str]:
-    """Orkestratorun govdesi. Planlanan asamalarin listesini dondurur
-    (testlerin dogrulamasi icin de kullanisli). Plan disindaki `stage_*`
-    fonksiyonlarina bu fonksiyon icinde HICBIR referans yoktur -- yalnizca
-    `asamalar` listesindeki adlar `globals()`tan cozulup cagrilir.
+    """The orchestrator's body. Returns the list of planned stages (also useful for
+    tests to verify). There is NO reference inside this function to any `stage_*`
+    outside the plan -- only the names in the `asamalar` list are resolved from
+    `globals()` and called.
 
-    N-21: `collect` (varsayilan `None`) verilirse her tamamlanan asamanin
-    donus degeri `collect["stages"][ad]`e yazilir -- gecelik raporun TEK
-    gercek veri kaynagi budur (bkz. `_build_nightly_report`). Bir asama
-    PATLARSA `collect["failure"]`e (stage/reason/error_text) yazilir ve
-    istisna YINE FIRLATILIR (yutulmaz) -- cagiran taraf (`main()`) onu
-    yakalayip KISMI raporu yine de yazar, K-62'nin "tavana carpilirsa
-    kontrollu durur, kismi raporlanir" niyetini karsilar. `collect=None`
-    (varsayilan, mevcut testlerin TAMAMININ kullandigi yol) davranisi HIC
-    DEGISTIRMEZ -- istisna dogrudan cagirana firlar, once oldugu gibi."""
+    N-21: if `collect` (default `None`) is given, each completed stage's return
+    value is written to `collect["stages"][ad]` -- this is the ONLY real data
+    source of the nightly report (see `_build_nightly_report`). If a stage CRASHES
+    it is written to `collect["failure"]` (stage/reason/error_text) and the
+    exception is STILL RAISED (not swallowed) -- the caller (`main()`) catches it
+    and writes the PARTIAL report anyway, satisfying K-62's "if it hits the ceiling
+    it stops in a controlled way and reports partially" intent. `collect=None`
+    (the default, the path ALL existing tests use) changes behavior NOT AT ALL --
+    the exception raises directly to the caller, as before."""
     asamalar = plan(stage=stage, from_stage=from_stage)
     print(f"medrag-nightly: plan = {' -> '.join(asamalar)}"
           + (f" (doc={doc_id})" if doc_id else ""))
@@ -1123,11 +1109,11 @@ def run(*, stage: str | None = None, from_stage: str | None = None,
 
 
 def _scan_paths_by_status(scan_output: dict) -> dict[str, list[str]]:
-    """`stage_scan`in dondurdugu `output["documents"]`i `scan_status`a gore
-    grupla -- `location.rel_path` (yoksa `identity.file_name`) YOL etiketi
-    olarak kullanilir. `scan_output` bos/None ise (scan bu kosuda hic
-    calismadi) tum gruplar bos -- cagiran taraf bunu, eslik eden bir
-    `FailureEntry` ile birlikte "olculmedi" olarak okur."""
+    """Groups the `output["documents"]` that `stage_scan` returns by `scan_status`
+    -- `location.rel_path` (else `identity.file_name`) is used as the PATH label.
+    If `scan_output` is empty/None (scan did not run this run) all groups are empty
+    -- the caller reads that, together with an accompanying `FailureEntry`, as
+    "not measured"."""
     out: dict[str, list[str]] = {}
     for rec in (scan_output or {}).get("documents", []):
         status = rec.get("scan", {}).get("scan_status")
@@ -1139,20 +1125,17 @@ def _scan_paths_by_status(scan_output: dict) -> dict[str, list[str]]:
 def _build_nightly_report(
     *, collect: dict, started_at, finished_at, backup_manifest, restore_note: str = "",
 ):
-    """N-21: `collect` (bkz. `run()`) icindeki HAM asama sonuclarini TEK
-    `NightlyReport` nesnesine cevirir. SAYI UYDURMAZ -- bir asama hic
-    calismadiysa (collect'te yok) o bolumun sayisal alanlari ya bos/0
-    varsayilanina duser (liste/sozluk alanlar -- YALNIZ o asama basarisiz
-    olmussa, ki bu durumda asagida MUTLAKA esdeger bir `FailureEntry`
-    esclik eder, "0 olcum" ile "hic calismadi" KARISMAZ) ya da modelin
-    zaten Optional (`None` = olculmedi) alanlarina duser (bkz.
-    `nightly_report.py`deki section docstring'leri -- model_call_count,
-    points_deleted/total_points_after HALA HICBIR ZAMAN hesaplanmiyor.
-    N-22: `ownership`in ucu VE `product_features.features_added` artik
-    `stage_ownership`/`stage_load` zincire baglandiginda GERCEKTEN
-    hesaplaniyor (asagidaki ilgili blok) -- `evidence_added`/
-    `evidence_removed`/`features_removed_for_no_evidence` ise HALA
-    olculmuyor, `forget_source` bu akista kullanilmiyor)."""
+    """N-21: converts the RAW stage results in `collect` (see `run()`) into a
+    single `NightlyReport`. Does not INVENT NUMBERS -- if a stage never ran (not in
+    collect) that section's numeric fields fall to their empty/0 default (list/dict
+    fields) or to the model's already-Optional (`None` = not measured) fields (see
+    the section docstrings in `nightly_report.py` -- model_call_count,
+    points_deleted/total_points_after are STILL never computed).
+    N-22: both ends of `ownership` and `product_features.features_added` are now
+    REALLY computed when `stage_ownership`/`stage_load` are connected to the chain
+    (the relevant block below) -- `evidence_added`/`evidence_removed`/
+    `features_removed_for_no_evidence` are STILL not measured, `forget_source` is
+    not used in this flow)."""
     from medrag.pipeline.nightly_report import (
         ChunkSection,
         FailureEntry,
@@ -1201,12 +1184,12 @@ def _build_nightly_report(
         embedding_model=getattr(vec_stats, "embedding_model", None) or "olculmedi",
     )
 
-    # N-22: `ownership` zincire baglandi -- `stage_ownership`in dondurdugu
-    # `build_all.main()` ciktisindan (meta + rows) GERCEK chunk sayilari
-    # cikarilir. `stages.get("ownership")` `None`/bos ise (asama hic
-    # calismadi, Ctrl+C ile kesildi, ya da `--stage`/`--from` gibi bu asamayi
-    # PLANA dahil etmeyen bir yol izlendi) SAYI UYDURULMAZ, ucu de None
-    # kalir -- "olculmedi" ile "hic belirsiz chunk yok" KARISTIRILMAZ.
+    # N-22: `ownership` is now connected to the chain -- the REAL chunk numbers
+    # are derived from the `build_all.main()` output (meta + rows) that
+    # `stage_ownership` returns. If `stages.get("ownership")` is `None`/empty (the
+    # stage never ran, was killed by Ctrl+C, or a path like `--stage`/`--from` did
+    # not include it in the PLAN) NO NUMBER IS INVENTED, all three stay None --
+    # "not measured" is NOT confused with "there are no unresolved chunks".
     ownership_out = stages.get("ownership")
     ownership = OwnershipSection(deterministic_count=None, model_routed_count=None,
                                  unresolved_count=None)
@@ -1229,16 +1212,16 @@ def _build_nightly_report(
             unresolved_count=len(llm_chunk_ids - accepted_chunk_ids),
         )
 
-    # N-22: `load` zincire baglandi -- `stage_load`in dondurdugu `load_to_db.
-    # main()` ozetindeki `n_present` (bu kosuda `present` durumuyla YAZILAN
-    # spec_value satiri sayisi) "eklenen ozellik" (`features_added`) ile
-    # DOGRUDAN eslesir (`load_product_incremental` her urunu ONCE
-    # not_specified'e DONDURUP SONRA yeniden yazdigi icin bu kosunun
-    # `n_present`i o kosuda present OLAN ozellik sayisidir). DIGER UC alan
-    # (evidence_added/evidence_removed/features_removed_for_no_evidence)
-    # `load_to_db.py`nin raporunda YOK -- `forget_source` (bu akista
-    # KULLANILMAYAN, bkz. `load_product_incremental` docstring'i) gerektirir,
-    # SAYI UYDURULMAZ, ucu de None kalir.
+    # N-22: `load` is now connected to the chain -- the `n_present` in the
+    # `load_to_db.main()` summary that `stage_load` returns (the number of spec_value
+    # rows written with `present` status this run) maps DIRECTLY to "features added"
+    # (`features_added`) (`load_product_incremental` first returns every product to
+    # not_specified, then re-writes it, so this run's `n_present` is the number of
+    # features that are present in it). The OTHER three fields
+    # (evidence_added/evidence_removed/features_removed_for_no_evidence) are NOT in
+    # `load_to_db.py`'s report -- they need `forget_source` (NOT USED in this flow,
+    # see `load_product_incremental` docstring); NO NUMBER IS INVENTED, all three
+    # stay None.
     load_out = stages.get("load")
     product_features = ProductFeaturesSection(
         features_added=load_out.get("n_present") if isinstance(load_out, dict) else None,
@@ -1246,14 +1229,13 @@ def _build_nightly_report(
         features_removed_for_no_evidence=None,
     )
 
-    # N-10 fix (2026-08-26): eskiden `failures` YALNIZ bir asama exception
-    # FIRLATIRSA doluyordu -- asama ICINDEKI tek tek basarisizliklar (bir
-    # urunun `load_to_db` yazimi patladi, bir dokuman parse FAILED oldu)
-    # asama kendisi BASARIYLA DONDUGU icin (exception yok, sadece raporunda
-    # hata satiri var) rapora hic ULASMIYORDU -- 2026-08-26 kosusunda 34
-    # urun yazilamadi + 1 dokuman parse FAILED oldugu halde rapor `full_
-    # success` diyordu. Asama-ICI basarisizliklar burada, top-level exception
-    # kontrolunden ONCE, ayri satirlar olarak eklenir.
+    # N-10 fix (2026-08-26): before, `failures` only filled when a stage raised an
+    # exception -- the individual failures INSIDE a stage (a product's `load_to_db`
+    # write died, a document's parse FAILED) never REACHED the report because the
+    # stage itself returned SUCCESSFULLY (no exception, only an error row in its
+    # report) -- in the 2026-08-26 run 34 products could not be written + 1 document
+    # parse FAILED yet the report said `full_success`. In-stage failures are added
+    # here, BEFORE the top-level exception check, as separate rows.
     failures: list[FailureEntry] = []
 
     for failed_doc in parse_out.get("failed_docs") or []:
@@ -1276,8 +1258,8 @@ def _build_nightly_report(
             file="-", stage=failure["stage"], reason=failure["reason"],
             error_text=failure["error_text"],
         ))
-        # Basarisiz asamadan SONRAKI planlanan asamalar hic calismadi --
-        # ayri bir kayit, "0 olcum" ile "hic calismadi"yi KARISTIRMASIN.
+        # the planned stages AFTER the failed stage never ran -- a separate record,
+        # so "0 measured" is not confused with "never ran".
         idx = STAGES.index(failure["stage"])
         for name in STAGES[idx + 1:]:
             failures.append(FailureEntry(
@@ -1286,11 +1268,10 @@ def _build_nightly_report(
             ))
 
     integrity = IntegritySection(
-        # O-08 butunluk kapisi (verify_db_integrity) run_nightly.py'ye HENUZ
-        # baglanmadi -- N-05'in ayni durumdaki backup_completed alani icin
-        # kullandigi AYNI konvansiyon: False = "henuz entegre edilmedi",
-        # "kontrol yapildi ve BASARISIZ oldu" DEGIL (bkz. IntegritySection
-        # docstring'i).
+        # O-08 integrity gate (verify_db_integrity) is NOT YET connected to
+        # run_nightly.py -- the SAME convention N-05 uses for the backup_completed
+        # field in the same situation: False = "not yet integrated", NOT "check ran
+        # and FAILED" (see IntegritySection docstring).
         pre_write_check_passed=False, post_write_check_passed=False,
         backup_completed=True, backup_location=str(backup_manifest.root),
         notes=("O-08 butunluk kapisi henuz run_nightly'e baglanmadi (ayri gorev, "
@@ -1363,9 +1344,9 @@ def _send_nightly_email(*, report, markdown_text: str, md_path: Path) -> None:
         NIGHTLY_REPORT_EMAIL_FROM   sender address. Default: nightly@<hostname>.
         SMTP_HOST / SMTP_PORT       default 127.0.0.1 / 25 (local postfix relay).
 
-    Mail gonderimi BASARISIZ olsa da gece kosusunu DUSURMEZ -- rapor zaten
-    diske yazildi (JSON+MD), mail sadece bir bildirim kanali; SMTP hatasi
-    burada YUTULUR, sadece uyari basilir."""
+    Even if mail delivery FAILS, the nightly run is NOT brought down -- the report
+    was already written to disk (JSON+MD), the mail is only a notification channel;
+    an SMTP error is SWALLOWED here, only a warning is printed."""
     to_addrs_raw = (os.environ.get("NIGHTLY_REPORT_EMAIL_TO") or "").strip()
     if not to_addrs_raw:
         print("nightly-email: NIGHTLY_REPORT_EMAIL_TO tanimsiz, mail atlaniyor")
@@ -1395,26 +1376,26 @@ def _send_nightly_email(*, report, markdown_text: str, md_path: Path) -> None:
 
 
 def _run_full_chain_with_report(*, doc_id: str | None, backup_manifest) -> None:
-    """N-21: tam zincir (`--stage`/`--from` YOK) icin `run()`u sarmalar --
-    kosu basariyla BITSIN ya da bir asama YARIDA PATLASIN, HER IKI DURUMDA
-    da bir rapor (JSON + markdown) yazilir (K-62 niyeti: "tavana carpilirsa
-    kontrollu durur, kismi raporlanir" -- bugune kadar bir asama patlayinca
-    traceback'le cikiliyordu, HICBIR IZ kalmiyordu).
+    """N-21: wraps `run()` for the full chain (NO `--stage`/`--from`) -- whether the
+    run completes successfully OR a stage CRASHES halfway, IN EITHER CASE a report
+    (JSON + markdown) is written (K-62 intent: "if it hits the ceiling it stops in
+    a controlled way and reports partially" -- before, when a stage crashed it just
+    exited with a traceback, leaving NO trace at all).
 
-    Kapsam BILINCLI dar tutuldu: yalniz TAM zincir (`--stage`/`--from` YOK)
-    rapor uretir -- K-60'in "elle mudahale" araclarindan (`--stage facts`
-    gibi) sonra rapor beklemek bu gorevin (N-21) kapsami DISINDA, bkz. bitti
-    notu. `--dry-run` zaten HIC bu fonksiyona GELMEZ (N-03: hicbir veri
-    yazmaz, `main()` dry-run'i erken DONER).
+    Scope DELIBERATELY kept narrow: only the full chain (NO `--stage`/`--from`)
+    produces a report -- expecting a report after K-60's "manual intervention" tools
+    (like `--stage facts`) is OUTSIDE this task's (N-21) scope, see the end note.
+    `--dry-run` NEVER reaches this function (N-03: it writes no data, `main()` returns
+    EARLY on dry-run).
 
-    N-25: bir asama YARIDA PATLARSA, rapor yazilmadan ONCE bu kosunun kendi
-    yedegine (`backup_manifest.root`) `restore_backup()` ile GERI DONULUR --
-    o kosunun o ana kadar yazdigi HER SEY (basariyla biten asamalar dahil)
-    geri alinir, boylece diskte "yarim ama ilerlemis" bozuk bir durum
-    KALMAZ (bkz. `nightly_backup.py`nin N-25 notu -- tek koruma budur, K-63
-    ile cakismaz cunku donulen yedek HER ZAMAN bu kosu BASLAMADAN ONCEKI
-    durumdur). Restore'un kendisi patlarsa (`RestoreError`) YUTULMAZ --
-    veri artik belirsiz bir halde olabilir, bu YUKSEK SESLE durmali."""
+    N-25: if a stage CRASHES halfway, BEFORE the report is written it returns to
+    this run's own backup (`backup_manifest.root`) via `restore_backup()` --
+    EVERYTHING that run wrote so far (including the successfully finished stages)
+    is rolled back, so no "halfway but progressed" broken state REMAINS on disk (see
+    `nightly_backup.py`'s N-25 note -- the only protection; it does not collide with
+    K-63 because the backed-up-to state is ALWAYS the one BEFORE this run started).
+    If the restore itself crashes (`RestoreError`) it is NOT swallowed -- the data may
+    now be in an undefined state, this must stop LOUDLY."""
     from datetime import UTC, datetime
 
     from medrag.core.paths import resolve_reports_dir
@@ -1498,8 +1479,8 @@ def _parse_argv(argv: list[str] | None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> None:
     args = _parse_argv(argv)
     if args.dry_run:
-        # N-03: kuru kosu hicbir veri yazmaz -- kilide (N-02) gerek yok,
-        # gercek bir kosuyla AYNI ANDA calismasi zararsizdir.
+        # N-03: a dry run writes no data -- no need for the lock (N-02); running
+        # concurrently with a real run is harmless.
         run(stage=args.stage, from_stage=args.from_stage, doc_id=args.doc_id,
             dry_run=True)
         return
@@ -1515,25 +1496,24 @@ def main(argv: list[str] | None = None) -> None:
     )
     from medrag.pipeline.cli.nightly_lock import NightlyLock, NightlyLockHeld
 
-    # N-21: rapor UZERETICI yalniz TAM zincir (--stage/--from YOK) icin
-    # calisir -- bkz. `_run_full_chain_with_report` docstring'i (kapsam
-    # kasitli dar, K-60'in elle mudahale araclari rapor beklemez).
+    # N-21: the report isn't generated for the full chain only (NO --stage/--from)
+    # -- see `_run_full_chain_with_report`'s docstring (scope deliberately narrow,
+    # K-60's manual-intervention tools don't expect a report).
     is_full_chain = args.stage is None and args.from_stage is None
 
     try:
         with NightlyLock() as lock:
-            # N-25: isaretci dosyasi kilit dosyasinin YANINA konur (ayni
-            # `NIGHTLY_LOCK_PATH` cozumlemesini paylasir) -- ayri bir env
-            # degiskeni yonetmeye gerek kalmaz, testlerin zaten set ettigi
-            # `NIGHTLY_LOCK_PATH` otomatik olarak isaretciyi de izole eder.
+            # N-25: the marker file is placed NEXT TO the lock file (shares the same
+            # `NIGHTLY_LOCK_PATH` resolution) -- no need to manage a separate env
+            # var; the `NIGHTLY_LOCK_PATH` tests already set also isolates the marker
+            # automatically.
             inprogress_path = lock.path.with_name(lock.path.stem + ".inprogress.json")
 
-            # Onceki kosu TEMIZ CIKMAMISSA (kill -9/cokme -- hicbir
-            # except/finally calisamadan surec yok oldu) bir "devam ediyor"
-            # isaretcisi diskte kalir (bkz. nightly_backup.py'nin N-25 notu).
-            # YENI bir yedek almadan ONCE bunu kontrol et: varsa, o kosunun
-            # kendi yedegine geri don -- yoksa bu kosu, bir onceki kosunun
-            # YARIM/BOZUK verisinin USTUNE binerdi.
+            # If the previous run did NOT exit cleanly (kill -9/crash -- the process
+            # died before any except/finally could run) an "in progress" marker stays
+            # on disk (see nightly_backup.py's N-25 note). Check this BEFORE taking a
+            # NEW backup: if it exists, return to that run's own backup -- otherwise
+            # this run would lay on top of the previous run's HALF/BROKEN data.
             pending = read_in_progress(path=inprogress_path)
             if pending is not None:
                 prev_root = pending.get("backup_root")
@@ -1544,19 +1524,18 @@ def main(argv: list[str] | None = None) -> None:
                 clear_in_progress(path=inprogress_path)
                 print("medrag-nightly: onceki yarim kosunun verisi geri yuklendi")
 
-            # N-05 (I-40): hicbir yazma, basarili bir yedek alinmadan
-            # BASLAMAZ -- kilit alindiktan HEMEN sonra, ilk `stage_*`den
-            # ONCE. Yedek basarisiz olursa (BackupError) hicbir `stage_*`
-            # CAGRILMAZ, gece *basarisiz* raporlanmali (K-63'un tek
-            # koruması budur -- elle duzeltilmis veriyi ezen gece kosusuna
-            # karsi tek guvenlik agi).
+            # N-05 (I-40): no writes START before a successful backup is taken --
+            # right AFTER the lock, BEFORE the first `stage_*`. If the backup fails
+            # (BackupError) no `stage_*` is CALLED and the night must be reported
+            # *failed* (K-63's only protection -- the single safety net against the
+            # nightly run overwriting manually-corrected data).
             manifest = run_backup()
             print(f"medrag-nightly: yedek tamam ({manifest.root}, "
                   f"{manifest.total_size_bytes} byte, "
                   f"{manifest.duration_seconds:.1f}s)")
-            # N-25: `stage_*` cagirmaya BASLAMADAN hemen once isaretcimizi
-            # yaz -- surec buradan sonra kill/cokme ile giderse bir sonraki
-            # cagri yukarida bu isaretciyi gorup geri yukleme yapar.
+            # N-25: write our marker right before starting to call `stage_*` -- if
+            # the process disappears via kill/crash after this point, the next call
+            # sees this marker above and does the restore.
             mark_in_progress(manifest.root, path=inprogress_path)
             try:
                 if is_full_chain:
@@ -1565,20 +1544,19 @@ def main(argv: list[str] | None = None) -> None:
                     run(stage=args.stage, from_stage=args.from_stage,
                         doc_id=args.doc_id, dry_run=False)
             except RestoreError:
-                # Geri yukleme kendisi PATLADI -- veri belirsiz durumda,
-                # isaretci BILEREK diskte birakilir ki bir sonraki cagri
-                # kurtarmayi TEKRAR denesin; burada yutmak/temizlemek bu
-                # korumayi tek kullanimlik yapardi.
+                # The restore itself CRASHED -- the data is in an undefined state;
+                # the marker is DELIBERATELY left on disk so the next call retries
+                # the recovery; swallowing/clearing it here would make this protection
+                # single-use.
                 print("medrag-nightly: GERI YUKLEME BASARISIZ -- veri belirsiz "
                       "durumda, isaretci elle mudahale icin diskte birakildi")
                 raise
             except BaseException:
-                # Surec HALA hayatta, kontrollu cikiyor (basarili bicimde
-                # geri alinmis bir asama hatasi -- SystemExit(1) -- ya da
-                # `--stage`/`--from` elle mudahale yolunun kendi hatasi,
-                # K-60 kapsaminda otomatik restore YOK ama bu bir cokme
-                # DEGIL): isaretciyi temizle, sonra HANGI istisna ise onu
-                # ayni sekilde yeniden firlat.
+                # The process is STILL alive, exiting in a controlled way (a stage
+                # error that was already rolled back -- SystemExit(1) -- or the
+                # `--stage`/`--from` manual-intervention path's own error, where no
+                # automatic restore happens under K-60 but this is NOT a crash):
+                # clear the marker, then re-raise WHATEVER exception it is, unchanged.
                 clear_in_progress(path=inprogress_path)
                 raise
             else:

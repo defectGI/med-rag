@@ -1,7 +1,8 @@
-"""Çıktı yerleşimi: yerel artefaktlar nereye yazılır (kök PROTOCOL.md
-KARAR-012 ilkesi — her artefaktın belgeli bir evi, ev üreten bileşenin
-altında). `vectorize`in "gerçek" çıktısı Qdrant'taki koleksiyondur; bu klasör
-yalnız yerel iz sürme artefaktlarını tutar (bkz. `storage/README.md`).
+"""Output layout: where local artifacts are written (root PROTOCOL.md
+KARAR-012 principle -- every artifact has a documented home, under the
+component that produced it). `vectorize`'s "real" output is the Qdrant
+collection; this folder only holds the local trace-tracking artifacts
+(see `storage/README.md`).
 """
 
 from __future__ import annotations

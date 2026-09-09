@@ -1,12 +1,12 @@
-"""Belge başına durum dosyaları (A5): `/durum/<doc_id>.json`.
+"""Per-document status files (A5): `/durum/<doc_id>.json`.
 
-worker yazar, api okur (SSE ile tarayıcıya akıtır). Dosya başına atomik
-yazım; okuma tarafı yarım yazım görmez.
+worker writes, api reads (streams to the browser via SSE). Per-file atomic
+write; the reading side never sees a partial write.
 
-Durum makinesi:
+State machine:
     queued → parsing → chunking → vectorizing → ready
                           └──────────────────────► error
-Silme işi için: queued → error (silme başarısızsa) | dosya tamamen kalkar.
+For a delete job: queued → error (if delete fails) | the file disappears entirely.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from typing import Any
 
 logger = logging.getLogger("medrag.pipeline.lifecycle.durum")
 
-#: Geçerli durumlar. api tarafı bunları rozete çevirir.
+#: Valid states. The api side turns these into a badge.
 STATES = ("queued", "parsing", "chunking", "vectorizing", "ready", "error")
 
 
@@ -48,8 +48,8 @@ def write_status(
     detail: str | None = None,
     **extra: Any,
 ) -> dict:
-    """`{doc_id}.json` yaz/üzerine yaz (idempotent). `extra`: dosya adı,
-    rel_path gibi api'nin liste görünümünde kullandığı sabit alanlar."""
+    """Writes/overwrites `{doc_id}.json` (idempotent). `extra`: fixed fields the
+    api uses in the list view, like file name, rel_path."""
     if state not in STATES:
         raise ValueError(f"bilinmeyen durum: {state!r} (geçerli: {STATES})")
     durum_dir.mkdir(parents=True, exist_ok=True)

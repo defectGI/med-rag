@@ -1,18 +1,18 @@
-"""İş kuyruğu worker'ı (A6): `python -m medrag.pipeline.lifecycle.worker`.
+"""Job queue worker (A6): `python -m medrag.pipeline.lifecycle.worker`.
 
-`ISLER_DIR`deki iş dosyalarını sırayla alır (jobs.claim_next) ve
-`runner.process_document`/`runner.delete_document` çalıştırır. Durum
-geçişleri `/durum/<doc_id>.json`a yazılır; api bu dosyaları okur.
+It takes the job files in `ISLER_DIR` in order (jobs.claim_next) and runs
+`runner.process_document`/`runner.delete_document`. State transitions are
+written to `/durum/<doc_id>.json`; api reads those files.
 
-Eşzamanlılık: TEK iş parçacığı, sıralı koşum. VLM/embedding çağrıları
-zaten ağır; 500+ belge ölçeğinde tek sıra öngörülebilir maliyet
-verir (PARSED+EMBED eşzamanlılığı karmakarışık hata modları üretir).
-Gerekirse ileride kuyruk başına worker sayısı eklenir.
+Concurrency: a SINGLE thread, sequential execution. VLM/embedding calls are
+already heavy; at the 500+ document scale a single queue gives a predictable
+cost (PARSED+EMBED concurrency produces messy failure modes). If needed, the
+number of workers per queue can be added later.
 
-Kesinti toparlama: yarıda kalan `.claim` dosyaları yeniden başlangıçta
-yeniden işlenir (action'lar idempotent). İşlem başarısızsa job düşer,
-durum `error`a döner -- yeniden deneme kullanıcı eylemidir (dosyayı
-yeniden yüklemek A4 semantiğiyle zaten "yeniden işle" demektir).
+Interrupt recovery: `.claim` files left half-done are re-processed at restart
+(actions are idempotent). If a job fails it is dropped and the state turns to
+`error` -- retrying is a user action (re-uploading the file already means
+"reprocess" under A4 semantics).
 """
 
 from __future__ import annotations
@@ -29,12 +29,12 @@ from medrag.pipeline.lifecycle.paths import durum_dir, isler_dir
 
 logger = logging.getLogger("medrag.pipeline.lifecycle.worker")
 
-#: Kuyruk yokluğundaki uyku süresi (sn). Kuyrukta iş varken bekleme yok.
+#: Sleep duration when the queue is empty (sec). No wait when jobs exist.
 POLL_INTERVAL_SECONDS = 1.0
 
 
 class _Stopper:
-    """SIGTERM/SIGINT -> nazik duruş: koşan iş bitince çık."""
+    """SIGTERM/SIGINT -> graceful stop: exit once the running job finishes."""
 
     def __init__(self) -> None:
         self.stop = False
@@ -44,11 +44,11 @@ class _Stopper:
 
 
 def process_job(job: job_queue.Job, *, runner_mod=None) -> None:
-    """Tek işi koşturur; istisnayı yakayıp `error` durumuna çevirir
-    (worker'ın kendisi ASLA patlamaz -- kuyruk canlı kalır). `runner_mod`
-    testler için enjekte edilebilir; verilmezse modül-düzeyindeki `runner`
-    kullanılır (çağrı anında çözülür -- monkeypatch'i kıran default-arg
-    yok)."""
+    """Runs a single job; catches the exception and turns it into `error` state
+    (the worker itself NEVER crashes -- the queue stays alive). `runner_mod` is
+    injectable for tests; if not given the module-level `runner` is used
+    (resolved at call time -- no default-arg that would break monkeypatching).
+    This is the worker's own resilience contract: no job let it die."""
     runner_mod = runner_mod or runner
     ddir = durum_dir()
     try:
@@ -87,8 +87,8 @@ def main() -> int:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     logger.info("=== lifecycle worker başlıyor ===")
 
-    # .env'ler (cli + parser) erken yüklenir: parse aşaması aynı env ile
-    # çalışır; eksik zorunlu değişken burada yüksek sesle düşer.
+    # .env files (cli + parser) are loaded early: the parse stage runs with the
+    # same env; a missing required variable fails loudly here.
     runner._bootstrap_env()
 
     stopper = _Stopper()
@@ -96,9 +96,9 @@ def main() -> int:
     signal.signal(signal.SIGINT, stopper.request)
 
     jdir = isler_dir()
-    # Kesinti toparlama: önceki çalışmadan kalan .claim işleri kuyruğa geri
-    # döner (action'lar idempotent). Ayrı bir adım -- claim_next'ın
-    # tek-kazanan garantisini bozmaz.
+    # Interrupt recovery: `.claim` jobs left over from a previous run go back to
+    # the queue (actions are idempotent). A separate step -- it does not break
+    # claim_next's single-winner guarantee.
     kalan = job_queue.recover(jdir)
     if kalan:
         logger.info("kesinti toparlama: %d iş kuyruğa geri alındı", kalan)

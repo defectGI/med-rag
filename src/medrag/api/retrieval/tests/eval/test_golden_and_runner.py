@@ -27,7 +27,7 @@ EVAL_DIR = _RETRIEVAL_DATA_ROOT / "data" / "eval"
 def test_example_intent_golden_loads_and_has_52_items():
     items = load_intent_golden(EVAL_DIR / "intent_golden.example.jsonl")
     assert len(items) == 52
-    # every label is a valid v1 intent, all 9 classes represented
+    # every label is a valid med-rag intent, all 6 classes represented
     labels = {it.expected_intent for it in items}
     assert labels == set(IntentLabel)
 
@@ -42,7 +42,7 @@ def test_comments_and_blanks_are_skipped(tmp_path):
     p = tmp_path / "g.jsonl"
     p.write_text(
         "# header\n\n"
-        '{"query": "q1", "expected_intent": "product_fact"}\n'
+        '{"query": "q1", "expected_intent": "medical_fact"}\n'
         '{"query": "q2", "expected_intent": "out_of_scope"}\n',
         encoding="utf-8",
     )
@@ -79,9 +79,9 @@ def test_evaluate_intent_accepts_sync_classifier_returning_str():
         return "out_of_scope"
 
     rep = asyncio.run(evaluate_intent(golden, always_oos))
-    # only the 5 genuinely out_of_scope items are correct
+    # only the 6 genuinely out_of_scope items are correct
     assert rep.n == 52
-    assert round(rep.accuracy, 2) == 0.10
+    assert round(rep.accuracy, 2) == 0.12
 
 
 def test_evaluate_retrieval_with_fake_retriever():

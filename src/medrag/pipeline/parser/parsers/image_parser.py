@@ -1,4 +1,4 @@
-"""Standalone image (JPEG/PNG) -> ParsedDocument via VLM (K6 genişletmesi).
+"""Standalone image (JPEG/PNG) -> ParsedDocument via VLM (K6 extension).
 
 A user uploading a photo/scanned image as a document wants it to become a
 searchable, citable piece of the corpus. A raster image has no deterministic
@@ -59,9 +59,9 @@ _SYSTEM = (
     "respond in Turkish."
 )
 
-#: IR_VERSION yeni blok/tip eklemekten etkilenmez; yalnız format etiketi ve
-#: parser sürümü buydu. Bir sonraki PARSER_VERSION bump'unu bu promoter değişimi
-#: belirler.
+#: IR_VERSION is unaffected by adding new blocks/types; it was only the
+#: format tag and parser version. The next PARSER_VERSION bump follows this
+#: prompt change.
 _PROMPT_VERSION = 1
 
 _FALLBACK_TEXT = "Görsel belge — bu içerik için VLM açıklaması alınamadı."
@@ -86,14 +86,14 @@ class ImageParser(BaseParser):
             try:
                 with Image.open(raw_path) as im:
                     width, height = im.size
-            except Exception:  # noqa: BLE001 -- boyut bilgisi opsiyonel
+            except Exception:  # noqa: BLE001 -- size info optional
                 width = height = None
 
         text = self._describe(data, mime)
         if not text or not text.strip():
             text = _FALLBACK_TEXT
 
-        # Tek blok id üretimi (markdown'daki next_id disiplini).
+        # Single block id generation (the next_id discipline from markdown).
         blk = "b0"
         blocks = [
             ParagraphBlock(
@@ -105,14 +105,14 @@ class ImageParser(BaseParser):
                 id="img1",
                 span=Span(byte_start=0, byte_end=len(data)),
                 image_index=1,
-                # locator: image_handler/blob store bunu çözer; standalone
-                # görselin kendisi hem kaynak hem blob'dur.
+                # locator: the image_handler/blob store resolves this; the
+                # standalone image itself is both source and blob.
                 locator={"file": raw_path.name, "source": "standalone-image"},
                 image_id=raw_sha256,
                 mime=mime,
                 width=width,
                 height=height,
-                # Bu parser açıklamayı kendisi üretti (enrichment değil).
+                # This parser produced the description itself (not enrichment).
                 description=text.strip(),
                 description_source="vlm-vision",
             ),
@@ -132,12 +132,12 @@ class ImageParser(BaseParser):
 
     @staticmethod
     def _describe(data: bytes, mime: str) -> str:
-        """VLM ile görseli çözümle; başarısız/tanımsızsa "" döner."""
+        """Analyze the image with the VLM; return "" if it fails/returns nothing."""
         try:
             from medrag.pipeline.parser.llm import get_vlm_client
 
             client = get_vlm_client()
-        except Exception as exc:  # noqa: BLE001 -- VLM yok: degrade
+        except Exception as exc:  # noqa: BLE001 -- no VLM: degrade
             logger.info("VLM istemcisi kurulamadı (%s) — görsel metni boş", exc)
             return ""
         try:
@@ -146,7 +146,7 @@ class ImageParser(BaseParser):
                 user="Describe this image.",
                 images=[(mime, data)],
             )
-        except Exception as exc:  # noqa: BLE001 -- ağ/anahtar hatası: degrade
+        except Exception as exc:  # noqa: BLE001 -- network/key error: degrade
             logger.warning("VLM görsel açıklaması başarısız (%s)", exc)
             return ""
 

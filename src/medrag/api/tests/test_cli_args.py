@@ -4,9 +4,9 @@ from medrag.api.__main__ import _parse_args
 
 
 def test_parses_query_and_intent():
-    args = _parse_args(["soru metni", "--intent", "product_fact"])
+    args = _parse_args(["soru metni", "--intent", "medical_fact"])
     assert args.query == "soru metni"
-    assert args.intent == "product_fact"
+    assert args.intent == "medical_fact"
     assert args.k is None
 
 

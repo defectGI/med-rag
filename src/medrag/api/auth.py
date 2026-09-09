@@ -1,15 +1,15 @@
-"""Tek-kullanıcı şifre girişi (K3): MEDRAG_SIFRE ile basit oturum.
+"""Single-user password login (K3): a simple session using MEDRAG_SIFRE.
 
-Kural: `MEDRAG_SIFRE` TANIMSIZ/BOŞSA kimlik doğrulama tamamen KAPALIDIR
-(geriye uyumluluk + offline testler); bu durumda başlangıçta YÜKSEK SESLE
-uyarılır. Tanımlıysa `/api/*` (auth uçları hariç) 401 döner; SPA statik
-dosyaları herkese açık kalır -- giriş ekranı 401'i görüp gösterilir
-(tek origin, statik dosyada sır yok).
+Rule: if `MEDRAG_SIFRE` is UNSET/EMPTY authentication is entirely OFF
+(backward compatibility + offline tests); in that case it is warned LOUDLY
+at startup. If set, `/api/*` (except auth endpoints) returns 401; the SPA
+static files stay public -- the login screen sees the 401 and is shown
+(single origin, no secret in the static file).
 
-Oturum: Flask `session` (imzalı çerez). Anahtar: `MEDRAG_GIZLI_ANAHTAR`
-env; tanımsızsa şifreden türetilir (tek kullanıcılı ev kurulumu için
-yeterli; iki değer de bağlantı/kimlik sınıfıdır -> `.env`, kök CONFIG.md
-taksonomisi).
+Session: Flask `session` (signed cookie). Key: `MEDRAG_GIZLI_ANAHTAR`
+env; if unset it is derived from the password (sufficient for a single-user
+home setup; both values are connection/identity class -> `.env`, root
+CONFIG.md taxonomy).
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ logger = logging.getLogger("medrag.api.auth")
 _PASSWORD_ENV = "MEDRAG_SIFRE"
 _SECRET_ENV = "MEDRAG_GIZLI_ANAHTAR"
 
-#: Kimlik doğrulama MUAF yolları (prefix eşleşmesi).
+#: Authentication EXEMPT paths (prefix matching).
 _EXEMPT_PREFIXES = ("/api/auth/",)
 
 
@@ -43,8 +43,8 @@ def _secret_key() -> str:
 
 
 def configure_auth(app: Flask) -> None:
-    """`create_app` içinden bir kez çağrılır: anahtar + before_request +
-    `/api/auth/*` uçlarını bağlar."""
+    """Called once from inside `create_app`: wires the key + before_request +
+    the `/api/auth/*` endpoints."""
     sifre = (os.environ.get(_PASSWORD_ENV) or "").strip()
     if sifre:
         app.secret_key = _secret_key()
@@ -59,8 +59,8 @@ def configure_auth(app: Flask) -> None:
         data = request.get_json(force=True, silent=True) or {}
         girilen = (data.get("password") or "").strip()
         if not sifre:
-            # Doğrulama kapalıyken giriş her zaman "başarılı" -- SPA'nın
-            # akışı bozulmasın; koruma zaten yok.
+            # With auth off, login always "succeeds" -- don't break the SPA's
+            # flow; there is no protection anyway.
             session["auth"] = True
             return jsonify({"authenticated": True})
         if not hmac.compare_digest(girilen, sifre):
@@ -84,7 +84,7 @@ def configure_auth(app: Flask) -> None:
             return None
         path = request.path
         if not path.startswith("/api/"):
-            return None  # statik dosyalar + SPA açık
+            return None  # static files + SPA are open
         for prefix in _EXEMPT_PREFIXES:
             if path.startswith(prefix):
                 return None

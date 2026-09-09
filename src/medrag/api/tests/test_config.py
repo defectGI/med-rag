@@ -9,9 +9,10 @@ from medrag.api.config import ChatbotConfig, load_config
 def test_load_default_config():
     cfg = load_config()
     assert cfg.routing.default_flow == "default_topn"
-    # med-rag (C5): yapılandırılmış spec yolu kapalı; her intent tek vektör
-    # yoluna (default_topn) düşer -- out_of_scope hariç.
-    assert cfg.routing.intents["product_fact"] == "default_topn"
+    # med-rag (C5): yapılandırılmış spec yolu kapalı; her tıbbi intent tek
+    # vektör yoluna (default_topn) düşer -- out_of_scope hariç.
+    assert cfg.routing.intents["medical_fact"] == "default_topn"
+    assert cfg.routing.intents["clinical_decision"] == "default_topn"
     assert cfg.routing.intents["out_of_scope"] == "no_retrieval"
     assert cfg.flow.top_n_k >= 1
     assert cfg.flow.sql_k >= 1

@@ -1,30 +1,32 @@
 # med-rag
 
-> **Köken:** Bu depo, [`doc-rag-pipeline`](https://github.com/) adlı ürün-belge
-> asistanından türetilmiştir (kopyala–sök–yeniden adlandır). Amaç farklıdır:
-> **tıbbi içerikli PDF'lerden (dijital + taranmış/foto PDF) kanıt (evidence)
-> göstererek cevap veren bir sohbet asistanı.** Hastalık bilgileri, ilaç dozları
-> gibi konularda her cevabın hangi belge/sayfa/bölüme dayandığı kritiktir.
+Medical document RAG assistant: it ingests clinical PDFs (digital **and** scanned/photo),
+DOCX, PPTX, XLSX, HTML and Markdown, converts them into a chunked vector corpus in
+Qdrant, and answers questions **with mandatory source citations**. In a medical setting
+the provenance of every claim matters, so each answer links back to the exact document,
+page and section it came from.
 
-PDF, DOCX, PPTX, XLSX, HTML, Markdown formatındaki belgeleri ortak bir ara
-temsile (IR) çevirir; görselleri OCR'dan geçirir; tabloları yapılandırır;
-oluşan korpusu token-bazlı chunk'lara böler; vektör veritabanına (Qdrant)
-yükler; ve bu kaynaktan soruları **kaynak atfıyla** cevaplayan bir chatbot
-sunar. Model tarafı sağlayıcı-bağımsızdır (yerel Ollama / OpenAI-uyumlu /
-OpenRouter / Anthropic).
+The model layer is provider-agnostic (local Ollama, any OpenAI-compatible endpoint,
+OpenRouter or Anthropic). External calls are made over HTTP — no model is downloaded or
+run on this machine.
 
-## Orijinal projeden farklar
+## Highlights
 
-| Konu | doc-rag-pipeline | med-rag |
-|---|---|---|
-| Yapılandırılmış veritabanı (`specs.db` + text2sql) | Aktif yol | **Kod duruyor, kullanılmıyor** — ileride yeniden açılabilir |
-| Excel ürün kataloğu (`chatbot-corpus/product_info/`) | Var | **Kaldırıldı** — scan "catalog-less" modda: katalog yoksa tüm belgeler `owner_ids=[]` ile kaydedilir |
-| WhatsApp köprüsü + worker + Redis | Var | **Kaldırıldı** — tek sunum yüzeyi web UI |
-| Nightly zinciri | products → scan → parse → chunk → ownership → facts → load → vectorize | scan → parse → chunk → ownership → facts → load → vectorize |
-| Paket adı | `urun` | `medrag` |
-| Kanıt politikası | Kaynak atfı çoğunlukla isteğe bağlı | Tıbbi kullanım için **zorunlu atıf** hedefi (strateji katmanında tıbbileştirme ilk iş) |
+- **6 input formats** → a common intermediate representation (IR) + clean Markdown.
+- **Three PDF paths**: deterministic (digital), VLM-verified (hybrid) and
+  render+VLM (**scanned/photo PDF**). Images are OCR'd, tables are reconstructed from
+  the PDF's own vector geometry, and the model only arbitrates low-confidence regions.
+- **Source-first answers**: every factual claim carries a `doc_id + page + section`
+  citation (inline `[n]` badges + a numbered source list). Missing sources are reported
+  honestly, and conflicting sources are shown side by side with a warning.
+- **Self-growing corpus**: upload a file → event-driven pipeline
+  (`parse → chunk → vectorize`) → searchable; delete removes every trace; re-uploading a
+  changed file drops the old derivation and ingests the new one. Your own notes join the
+  corpus and are cited like documents.
+- **Web UX**: Vite + React + TypeScript + Tailwind + shadcn/ui, Wada Sanzo ivory + sun
+  palette, light/dark theme, live status badges, note module and an evidence viewer.
 
-## Mimari (değişmedi)
+## Architecture
 
 ```
  chatbot-corpus/                        src/medrag/pipeline/
@@ -33,157 +35,157 @@ OpenRouter / Anthropic).
                                        │
                              ┌─────────▼─────────┐
                              │  cli: parse        │  parser: file → IR JSON + Markdown
-                             │                    │  (dijital / hybrid / scanned yolları;
-                             │                    │   görsel OCR, tablo yapısı + başlık)
+                             │                    │  (digital / hybrid / scanned paths;
+                             │                    │   image OCR, table structure + heading)
                              └─────────┬─────────┘
                              ┌─────────▼─────────┐
-                             │  cli: chunk        │  chunker: IR → token-bazlı,
-                             │  all_chunks.json   │  yapıyı koruyan chunk'lar (LLM'siz)
+                             │  cli: chunk        │  chunker: IR → token-based,
+                             │  all_chunks.json   │  structure-preserving (LLM-free)
                              └─────────┬─────────┘
                                        │
                              ┌─────────▼─────────┐
                              │  vectorize         │  chunk → embed → Qdrant upsert
                              └─────────┬─────────┘
-                                       │  vektör yolu
+                                       │  vector path
                              ┌─────────▼─────────┐
-                             │  src/medrag/api/   │  intent → deterministik router →
-                             │  chatbot (web UI)  │  flow → cevap modeli (evidence paneli,
+                             │  src/medrag/api/   │  intent → deterministic router →
+                             │  chatbot (web UI)  │  flow → answer model (evidence panel,
                              │                    │  SSE trace)
                              └───────────────────┘
 ```
 
-**Katman kuralı:** hiçbir bileşen diğerini doğrudan import etmez; bağ dosya
-sistemi ve veritabanıdır. `medrag.api` ↔ `medrag.pipeline` bağımsızlığı ve
-`medrag.core`'un en altta olması `pyproject.toml` içindeki import-linter
-sözleşmeleriyle zorlanır.
+**Layer rule:** no component imports another directly; the coupling is the database and
+the filesystem. The independence of `medrag.api` ↔ `medrag.pipeline` and the bottom
+placement of `medrag.core` are enforced by import-linter contracts in `pyproject.toml`.
 
-## Bileşenler
+## Components
 
-| Bileşen | Ne yapar | Kod |
+| Component | What it does | Code |
 |---|---|---|
-| **chatbot-corpus** | `BELGELER/` ağacını tarayıp `document_nodes.json` registry üretir. Katalog'suz mod: ürün beyaz listesi yoksa her belge kaydedilir. | [`chatbot-corpus/document_info/`](chatbot-corpus/document_info/README.md) |
-| **parser** | 6 format → ortak IR + Markdown. PDF için üç yol: deterministik (dijital), VLM-doğrulamalı (hybrid), render+VLM (**scanned/foto PDF**). Görsel OCR, tablo ızgarası PDF'in kendi vektör geometrisinden kurulur; model yalnız düşük güven bölgelerinde "hakem". | [`src/medrag/pipeline/parser/`](src/medrag/pipeline/parser/README.md) |
-| **pipeline/cli** | Aşama orkestrasyonu + gecelik koşu (`medrag-nightly`). | [`src/medrag/pipeline/cli/`](src/medrag/pipeline/cli/README.md) |
-| **chunker** | Token-bazlı, yapıyı koruyan chunk'lar. `doc`/`section`/`page` meta'sı taşır — kanıt atfının temeli. LLM'siz, tamamen offline. | [`src/medrag/pipeline/chunker/`](src/medrag/pipeline/chunker/README.md) |
-| **vectorize** | Embedding → Qdrant upsert (delete-then-reinsert + bayatlık kapısı). | [`src/medrag/pipeline/vectorize/`](src/medrag/pipeline/vectorize/README.md) |
-| **api (chatbot)** | Orkestrasyon: intent → router → flow (`default_topn` ana yol) → cevap modeli. Web UI + evidence paneli. | [`src/medrag/api/`](src/medrag/api/) |
-| **api/retrieval** | Projeden bağımsız RAG retrieval katmanı: intent_classification, top_n (Qdrant), query_rewriting, raptor, db_query. | [`src/medrag/api/retrieval/`](src/medrag/api/retrieval/) · [`retrieval/ARCHITECTURE.md`](retrieval/ARCHITECTURE.md) |
-| **facts (dormant)** | Evidence'lı spec çıkarımı → `specs.db` + text2sql yolu. med-rag'de **kullanılmaz** ama ileride yapılandırılmış yol istenirse kod hazırdır. | [`src/medrag/pipeline/facts/`](src/medrag/pipeline/facts/) |
-| **panel** | Salt-okunur lineage/bayatlık paneli. | [`src/medrag/api/panel/`](src/medrag/api/panel/README.md) |
-| **core** | Ortak altyapı: config yükleyici, sqlite yardımcıları, OpenAI-uyumlu LLM istemcisi. | [`src/medrag/core/`](src/medrag/core/) |
-| **tools/benchmark** | Parser Markdown'ını kaynak PDF'e karşı VLM jüri ile puanlar. | [`tools/benchmark/`](tools/benchmark/README.md) |
-| **packages/text2sql-native** | facts'ın kullandığı iki aşamalı text2sql motoru (dormant). | [`packages/text2sql-native/`](packages/text2sql-native/README.md) |
+| **chatbot-corpus** | Scans the `BELGELER/` tree and produces the `document_nodes.json` registry. Catalog-less mode: with no product whitelist every document is registered. | [`chatbot-corpus/document_info/`](chatbot-corpus/document_info/README.md) |
+| **parser** | 6 formats → common IR + Markdown. Three PDF paths; image OCR; table reconstruction. | [`src/medrag/pipeline/parser/`](src/medrag/pipeline/parser/README.md) |
+| **pipeline/cli** | Stage orchestration + nightly run (`medrag-nightly`). | [`src/medrag/pipeline/cli/`](src/medrag/pipeline/cli/README.md) |
+| **chunker** | Token-based, structure-preserving chunks carrying `doc`/`section`/`page` metadata — the basis of evidence attribution. Fully offline. | [`src/medrag/pipeline/chunker/`](src/medrag/pipeline/chunker/README.md) |
+| **vectorize** | Embedding → Qdrant upsert (delete-then-reinsert + staleness gate). | [`src/medrag/pipeline/vectorize/`](src/medrag/pipeline/vectorize/README.md) |
+| **api (chatbot)** | Orchestration: intent → router → flow (`default_topn` main path) → answer model. Web UI + evidence panel. | [`src/medrag/api/`](src/medrag/api/) |
+| **api/retrieval** | Independent RAG retrieval layer: intent classification, top_n (Qdrant), query rewriting, raptor, db_query. | [`src/medrag/api/retrieval/`](src/medrag/api/retrieval/) · [`retrieval/ARCHITECTURE.md`](retrieval/ARCHITECTURE.md) |
+| **facts (dormant)** | Evidence-based spec extraction → `specs.db` + text2sql path. Present but unused in med-rag. | [`src/medrag/pipeline/facts/`](src/medrag/pipeline/facts/) |
+| **panel** | Read-only lineage/staleness panel. | [`src/medrag/api/panel/`](src/medrag/api/panel/README.md) |
+| **core** | Shared infrastructure: config loader, sqlite helpers, OpenAI-compatible LLM client. | [`src/medrag/core/`](src/medrag/core/) |
+| **tools/benchmark** | Scores parser Markdown against the source PDF using a VLM judge. | [`tools/benchmark/`](tools/benchmark/README.md) |
+| **packages/text2sql-native** | Two-stage text2SQL engine used by facts (dormant). | [`packages/text2sql-native/`](packages/text2sql-native/README.md) |
 
-Kök dizinlerdeki `chunker/`, `vectorize/`, `facts/`, `chatbot/`, `retrieval/`,
-`pipeline/` klasörleri **yalnızca veri/konfigürasyon/dokümantasyon** tutar;
-kod `src/medrag/` altındadır.
+The root-level data directories (`chatbot/`, `vectorize/`, `chunker/`, `facts/`,
+`pipeline/`, `retrieval/`) hold **only data, configuration and documentation**; all code
+is under `src/medrag/`.
 
-## Kurulum
+## Installation
 
 Python **≥ 3.11**.
 
 ```bash
 uv sync --extra parse --extra serve --extra dev
-# veya
+# or
 pip install -e ".[parse,serve,dev]"
 ```
 
-Model/embedding çağrıları HTTP üzerinden yapılır (yerel Ollama veya barındırılan
-OpenAI-uyumlu uç nokta); bu makinede model çalıştırılmaz/indirilmez.
+Model/embedding calls are made over HTTP (local Ollama or a hosted OpenAI-compatible
+endpoint); no model is downloaded or executed on this machine.
 
-## Hızlı başlangıç
+## Quick start
 
-### Docker ile (önerilen — tek komut, tam yığın)
+### Docker (recommended — one command, full stack)
 
 ```bash
-cp .env.example .env          # doldur: MEDRAG_SIFRE + LLM/embedding
+cp .env.example .env          # fill in: MEDRAG_SIFRE (password) + LLM/embedding values
 docker compose up -d --build  # web + pipeline-worker + pipeline + qdrant
 ```
 
-Tarayıcı: `http://localhost:8507`. Detaylar: [`DEPLOY.md`](DEPLOY.md) ·
-günlük kullanım: [`KULLANIM.md`](KULLANIM.md).
+Browser: `http://localhost:8507`. Details: [`DEPLOY.md`](DEPLOY.md) ·
+daily usage: [`USAGE.md`](USAGE.md).
 
-### CLI ile (geliştirme / tek aşama)
+### CLI (development / single stage)
 
 ```bash
-# Tek dosyayı parse et (scanned PDF dahil)
-python src/medrag/pipeline/parser/scripts/to_markdown.py belge.pdf
+# Parse a single file (scanned PDF included)
+python src/medrag/pipeline/parser/scripts/to_markdown.py document.pdf
 
-# Aşama aşama
+# Stage by stage
 python -m medrag.pipeline.cli.run_parse_pipeline     # registry → IR + Markdown
 python -m medrag.pipeline.cli.run_chunk_pipeline     # IR → all_chunks.json
 python -m medrag.pipeline.vectorize                  # chunk → embed → Qdrant
 
-# Gecelik zincir
+# Nightly chain
 medrag-nightly                # scan → parse → chunk → ownership → facts → load → vectorize
-medrag-nightly --from chunk   # belirli aşamadan başla
+medrag-nightly --from chunk   # start from a given stage
 
-# Chatbot (geliştirme sunucusu)
+# Chatbot (development server)
 python -m medrag.api.webapp   # http://127.0.0.1:8507
 ```
 
-Korpus düzeni: `BELGELER/` ağacı (PDF'ler) → `document_nodes.json` →
-`parsed/` → `chunks/all_chunks.json` → Qdrant. Tüm yollar bileşen
-`.env.example` şablonlarından ayarlanır (bkz. [`CONFIG.md`](CONFIG.md)).
+Corpus layout: `BELGELER/` tree (PDFs) → `document_nodes.json` → `parsed/` →
+`chunks/all_chunks.json` → Qdrant. All paths are configured from the component
+`.env.example` templates (see [`CONFIG.md`](CONFIG.md)).
 
-**Kritik hizalama:** `EMBEDDING_MODEL` ve Qdrant koleksiyon adı vectorize,
-retrieval ve chatbot tarafında bayt-bayt aynı olmalıdır.
+**Critical alignment:** `EMBEDDING_MODEL` and the Qdrant collection name must match
+byte-for-byte across vectorize, retrieval and the chatbot.
 
-## Test
+## Tests
 
-Tüm test paketi **offline**'dır — ağ, model veya API anahtarı gerekmez:
-
-```bash
-pytest src/ tools/ -q
-python -m pytest src/medrag/tests/test_import_contracts.py   # katman sınırı
-```
-
-## Uygulama durumu
-
-PLAN.md'deki task gruplarının durumu:
-
-- **A — Belge yaşam döngüsü** (upload/silme/değişiklik/durum/iş kuyruğu/notlar):
-  tamamlandı. `POST/GET/DELETE /api/library/documents`, dosya-tabanlı iş
-  kuyruğu + `pipeline-worker`, `durum/` rozetleri, notlar→korpus.
-- **B — Ön yüz** (Vite + React + TS + Tailwind + shadcn/ui): tamamlandı.
-  Login, kütüphane, SSE'li chat, evidence bileşenleri, belge görüntüleyici,
-  notlar modülü, sohbet geçmişi + yeni sohbet.
-- **C — Evidence & prompt** (zorunlu atıf, çelişki politikası, bulunamadı +
-  hekim notu, TR/EN dil politikası, router sadeleştirme): tamamlandı.
-- **D — Tasarım sistemi** (Wada Sanzo fildişi + güneş paleti, açık/koyu
-  tema): tamamlandı.
-- **E — Deploy & operasyon**: compose + volume + gecelik yedek/restore +
-  loglar + auth sertleştirmesi tamam; bkz. [`DEPLOY.md`](DEPLOY.md).
-- **F — Kalite & kabul**: offline suite baseline'da (61 önceden-var-olan
-  fail dışında sıfır regresyon); uçtan uca duman testi
-  `tools/e2e_smoke.py`; dokümantasyon güncel.
-
-## Test
-
-Tüm test paketi **offline**'dır — ağ, model veya API anahtarı gerekmez:
+The whole test suite is **offline** — no network, model or API key required:
 
 ```bash
 pytest src/ tools/ -q
-python -m pytest src/medrag/tests/test_import_contracts.py   # katman sınırı
+python -m pytest src/medrag/tests/test_import_contracts.py   # layer boundaries
 ```
 
-Çalışan bir stack'e karşı uçtan uca kabul:
+End-to-end acceptance against a running stack:
 
 ```bash
-python tools/e2e_smoke.py --base-url http://localhost:8507 --sample ornek.pdf
+python tools/e2e_smoke.py --base-url http://localhost:8507 --sample sample.pdf
 ```
+
+## Project status
+
+The task groups in [`PLAN.md`](PLAN.md):
+
+- **A — Document lifecycle** (upload/delete/change/status/job queue/notes): complete.
+- **B — Frontend** (Vite + React + TS + Tailwind + shadcn/ui): complete.
+- **C — Evidence & prompt** (mandatory citation, conflict policy, not-found + clinician
+  note, TR/EN language policy, router simplification): complete.
+- **D — Design system** (Wada Sanzo ivory + sun palette, light/dark theme): complete.
+- **E — Deploy & operations** (compose + volume + nightly backup/restore + logs + auth
+  hardening): complete; see [`DEPLOY.md`](DEPLOY.md).
+- **F — Quality & acceptance**: the offline suite runs at its documented
+  baseline (a small set of pre-existing failures on dormant specs.db / text2sql /
+  nightly-report paths — see [`PLAN.md`](PLAN.md)); `ruff check src tools` and the
+  layer-contract tests are green; the end-to-end smoke test `tools/e2e_smoke.py`
+  is ready against a running stack.
 
 ## Deploy (Docker)
 
-Kurulum, yedek/geri yükleme tatbikatı, gözlemlenebilirlik ve güvenlik
-notları için [`DEPLOY.md`](DEPLOY.md)'e bakın. Kısa özet:
+For setup, backup/restore drill, observability and security notes, see
+[`DEPLOY.md`](DEPLOY.md). Short version:
 
 ```bash
 cp .env.example .env && docker compose up -d --build
 ```
 
-Servisler: `web` (SPA + API, 8507), `pipeline-worker` (iş kuyruğu:
-parse→chunk→vectorize), `pipeline` (gecelik koşunun/yedeğin exec hedefi,
-`sleep infinity`), `qdrant`. Korpus tek host dizininde (`CORPUS_HOST_DIR` →
-`/corpus`); `web` ve `pipeline-worker` korpusa okuma-yazma erişir (upload
-API'si bir yazardır).
+Services: `web` (SPA + API, port 8507), `pipeline-worker` (job queue:
+parse→chunk→vectorize), `pipeline` (exec target for the nightly run/backup,
+`sleep infinity`), `qdrant`. The corpus lives in a single host directory
+(`CORPUS_HOST_DIR` → `/corpus`); `web` and `pipeline-worker` read-write the corpus (the
+upload API is a writer).
+
+## Origin
+
+This repository was adapted from an internal product-document assistant
+(`doc-rag-pipeline`, package name `urun`) by copy–strip–rename. The purpose differs: here
+every answer to a clinical question — disease facts, drug doses — must cite the document,
+page and section it is derived from. The product-catalog, WhatsApp bridge and
+structured-database path were removed; what remains is the document lifecycle,
+retrieval and a citation-forced chatbot. That original work is not public.
+
+## License
+
+[MIT](LICENSE).

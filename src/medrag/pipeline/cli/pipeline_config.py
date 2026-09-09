@@ -71,7 +71,7 @@ def _cast_int(raw: str) -> Any:
 
 
 def _cast_health(raw: str) -> Any:
-    # Eski _health_on() semantiği: yalnız "0"/"false" kapatır (diğer her şey açar).
+    # Old _health_on() semantics: only "0"/"false" turns it off (anything else enables it).
     return raw.strip().lower() not in ("0", "false")
 
 

@@ -1,260 +1,262 @@
-# chatbot tuning varsayılanları (kök CONFIG.md: tuning burada, bağlantı/sır
-# .env'de). Bilinmeyen anahtar reddedilir, eksik anahtar yüksek sesle patlar
-# (chunker/vectorize ile aynı yükleyici deseni, bkz. chatbot/chatbot/config.py).
+# chatbot tuning defaults (root CONFIG.md: tuning here, connection/secrets in
+# .env). Unknown keys are rejected; a missing key fails loudly
+# (same loader pattern as chunker/vectorize, see chatbot/chatbot/config.py).
 
 [routing]
-# Bir intent burada listelenmiyorsa bu flow'a düşer. Deterministik eşleme
-# (karar: 2026-07-22) -- asıl konuşan model kendi stratejisini çalışma
-# zamanında seçmez; yeni bir yol eklemek bu tabloya bir satır eklemek + yeni
-# bir Flow yazmaktan ibarettir, mevcut flow'lara dokunulmaz.
+# If an intent is not listed here it falls to this flow. Deterministic mapping
+# (decision: 2026-07-22) -- the speaking model does NOT pick its own strategy at
+# runtime; adding a new path is adding a row to this table + writing a new
+# Flow, not touching existing flows.
 default_flow = "default_topn"
 
 [routing.intents]
-# med-rag (PLAN.md C5): neredeyse her şey tek vektör yoluna (default_topn)
-# düşer -- yapılandırılmış spec yolu (sql_topn) bu fork'ta KAPALI, kodu
-# duruyor ama tablodan koparıldı. out_of_scope/quote_or_contact retrieval
-# gerektirmez (no_retrieval). doc_download specs.db'nin document
-# tablosuna bağlı olduğundan dormanttir; belge indirme UI'nin kütüphane
-# API'sinden yapılır (medrag.api.library).
-product_fact = "default_topn"
-visual_request = "default_topn"
-doc_download = "default_topn"
-aggregation = "default_topn"
+# med-rag medical intent set (PLAN.md C5 + clinical adaptation): the retrieval
+# surface is a single vector path (default_topn); the SQL/spec path (sql_topn)
+# is OFF in this fork, its code remains but is detached from the table.
+# Medical intents differ only in the ANSWER POLICY (safety tier), not in
+# retrieval -- so all of them except out_of_scope fall to default_topn.
+# out_of_scope requires no retrieval (no_retrieval).
+medical_fact = "default_topn"
+clinical_decision = "default_topn"
 comparison = "default_topn"
+interaction = "default_topn"
+library = "default_topn"
 out_of_scope = "no_retrieval"
-quote_or_contact = "no_retrieval"
-recommendation = "default_topn"
 
 
 [flow]
-# Her retrieval çağrısına (top_n / db_query) istenen sonuç sayısı.
-# `top_n_k`: yalnızca `default_topn` flow'u (doc_question gibi SQL'siz saf
-# top_n akışı) kullanır.
+# Desired result count for each retrieval call (top_n / db_query).
+# `top_n_k`: used only by the `default_topn` flow (a pure top_n flow without
+# SQL, like doc_question).
 top_n_k = 10
-# `sql_k`: `sql_topn` flow'unun (product_fact/aggregation/visual_request) SQL
-# satır sayısı üst sınırı. db_query şart-uyan satırların TAMAMINI çeker
-# (SQL'de LIMIT yok), bu Python tarafında yalnızca `results[:k]` ile kırpılan
-# üst sınır (bkz. retrieval db_query/retriever.py::retrieve) -- kullanıcı
-# "50 ürün var ama 10'u görülüyor" diye bildirdi, 300'e çıkarıldı (karar:
-# 2026-07-27).
+# `sql_k`: the SQL row-count ceiling for the `sql_topn` flow
+# (product_fact/aggregation/visual_request). db_query pulls ALL matching rows
+# (no LIMIT in SQL); this is only the Python-side ceiling clipped with
+# `results[:k]` (see retrieval db_query/retriever.py::retrieve) -- the user
+# reported "there are 50 products but only 10 are shown", raised to 300
+# (decision: 2026-07-27).
 sql_k = 300
-# `sql_topn_k`: AYNI `sql_topn` flow'unun top_n (chunk/RAG) çağrıları için AYRI
-# bir üst sınır (karar: 2026-07-27) -- önceden `sql_k` ile PAYLAŞILIYORDU,
-# `sql_k`'yi büyütmek istemeden top_n context boyutunu/token maliyetini de
-# büyütüyordu. `top_n_k`'den bağımsız bir alan -- ikisi de "top_n çağrısına
-# istenen sonuç sayısı" ama farklı flow'lara ait.
+# `sql_topn_k`: a SEPARATE ceiling for the top_n (chunk/RAG) calls of the SAME
+# `sql_topn` flow (decision: 2026-07-27) -- previously it was SHARED with
+# `sql_k`, so raising `sql_k` also grew the top_n context size/token cost
+# without wanting to. An independent field from `top_n_k` -- both mean "number
+# of results requested for a top_n call" but belong to different flows.
 sql_topn_k = 10
 
 [session]
-# L0 oturum görev-durumu (bkz. session_state.py / reconciler.py).
-# Bir subject (ürün/entity) kaç turdur değinilmezse aktif odaktan düşer
-# (recency-decay, yapışkan bağlama karşı).
+# L0 session task-state (see session_state.py / reconciler.py).
+# A subject (product/entity) drops out of the active focus if not mentioned for
+# N turns (recency-decay, against sticky context).
 decay_window = 6
-# Reconciler'ın "amaç hâlâ aktif" güveni bu eşiğin ALTINDAYSA asıl model
-# cevabı çerçevelerken teyit istemeye yönlendirilir (hedge).
+# If the reconciler's "goal still active" confidence is BELOW this threshold the
+# main model is steered to ask for confirmation while framing the answer (hedge).
 hedge_confidence_threshold = 0.5
-# L1 (reconcile) + L2 (intent classify) TEK küçük-model çağrısında birleşsin mi
-# (karar: 2026-07-24). true: reconciler intent'i de döndürür, ayrı classify
-# çağrısı (bir tam LLM round-trip) atlanır -- her turda, "selam" gibi trivial
-# turlar dahil. Küçük modelin tek çağrıda hem durum takibi hem 9-etiket
-# sınıflandırmayı güvenilir yaptığı GPU makinesinde A/B ile ölçülmeli; kalite
-# düşerse false yapıp eski iki-çağrılı davranışa dön (kod değişmeden).
+# Whether L1 (reconcile) + L2 (intent classify) merge into ONE small-model call
+# (decision: 2026-07-24). true: the reconciler also returns the intent, the
+# separate classify call (a full LLM round-trip) is skipped -- every turn,
+# including trivial ones like "hi". This must be measured with A/B on the GPU
+# machine where the small model reliably does both state-tracking and 9-label
+# classification; if quality drops, set false and return to the old two-call
+# behavior (no code change).
 fuse_intent = true
-# GPU-ağır SQL zinciri (linking gemma4:31b -> generation qwen2.5-coder:32b)
-# uygulama genelinde en fazla kaç eşzamanlı çalışsın (bkz. gpu_gate.py). 1 =
-# iki büyük model tek 32GB VRAM'de asla yarışmaz (sığmıyorsa thrashing yerine
-# düzenli sıra). İki model birlikte VRAM'e sığdırılabiliyorsa 2 yapıp gerçek
-# batch paralelliği (ör. comparison'ın iki tarafı) denenebilir.
+# The GPU-heavy SQL chain (linking gemma4:31b -> generation qwen2.5-coder:32b)
+# max concurrency application-wide (see gpu_gate.py). 1 = the two large models
+# never contend on a single 32GB VRAM (if they don't fit, a regular queue
+# instead of thrashing). If both models can jointly fit in VRAM, set 2 and try
+# real batch parallelism (e.g. the two sides of comparison).
 sql_concurrency = 1
-# Tek bir SQL retrieval çağrısı bu süreyi (saniye) aşarsa SqlGateTimeout
-# fırlar, semafor hemen serbest kalır -- bir hata/donma sınıfının TÜM diğer
-# SQL-tabanlı kullanıcıları süresiz kilitlemesini önlemek için (karar:
-# 2026-08-05, kullanıcı: "sql hatalarında servisi durdurmamalı", bkz.
-# gpu_gate.py::SerializedRetriever). Legit en-kötü-durum tek istek (linking
-# 180s + generation retry×3×300s, text2sql/config.toml) ~1080s sürebilir --
-# 1500 bunun belirgin üzerinde, normal yavaşlığı kesmez.
+# If a single SQL retrieval call exceeds this time (seconds), SqlGateTimeout is
+# thrown and the semaphore is released immediately -- to prevent one
+# error/hang class from blocking ALL other SQL-based users indefinitely
+# (decision: 2026-08-05, user: "on SQL errors the service should not stop",
+# see gpu_gate.py::SerializedRetriever). A legitimate worst case for a single
+# request (linking 180s + generation retry×3×300s, text2sql/config.toml) can
+# take ~1080s -- 1500 is clearly above that, so it does not cut normal slowness.
 sql_gate_timeout_seconds = 1500
 
 [result_shape]
-# `FlowContext.result_shape` eşiği (ROADMAP 14c, bkz. chatbot/AGENTS.md
-# "Mimari kurallar" DÜZELTME 2026-07-29) -- 0 sonuç -> "zero", 1 sonuç ->
-# "one", 2..few_max sonuç -> "few", few_max'ın üstü -> "many". Bu YALNIZCA
-# yanıt FORMUNU şekillendiren kapalı kümeli bir sinyaldir (asıl konuşan
-# modele `FlowContext.results` + strateji promptu YANINDA kısa bir not olarak
-# gider, bkz. answering_model.py::_result_signal_note) -- flow MANTIĞINI
-# etkilemez, hangi satırların döndüğünü değiştirmez.
+# `FlowContext.result_shape` threshold (ROADMAP 14c, see chatbot/AGENTS.md
+# "Architecture rules" EDIT 2026-07-29) -- 0 results -> "zero", 1 result ->
+# "one", 2..few_max results -> "few", above few_max -> "many". This is ONLY a
+# closed-set signal shaping the answer FORM (it goes to the speaking model as a
+# short note alongside `FlowContext.results` + the strategy prompt, see
+# answering_model.py::_result_signal_note) -- it does NOT affect flow LOGIC and
+# does not change which rows are returned.
 few_max = 5
 
 [visual]
-# Görsel görünürlük süzgeci (ROADMAP 10d) -- chunker/parser'ın `[visual]
-# exclude_types` ilkesiyle AYNI prensip (bkz. chunker/config/default.toml
-# [visual], kök CONFIG.md): top_n metadata'sındaki `images` alanından
-# (bkz. vectorize/cli.py::_node_payload) burada listelenen `visual_type`
-# değerleri kullanıcıya AYRI görsel kanalında hiç gösterilmez (bkz.
-# answering_model.py::extract_visible_images). Chunker'ın kendi
-# exclude_types'ından BAĞIMSIZ bir katman -- o chunk METNİNE girişi süzer,
-# bu KULLANICIYA structured gösterimi süzer. Boş liste = hiçbir tip
-# dışlanmaz (varsayılan: hepsi gösterilir; tip bilinmiyorsa/yoksa da
-# şüphede dahil et ilkesiyle gösterilir).
-# ANA SALTER: false iken gorsel kanali TAMAMEN kapanir (arayuz hic gorsel
-# basmaz). exclude_types tip-bazlidir ve "tip bilinmiyorsa GOSTER" ilkesiyle
-# calisir -- tum tipleri saysaniz bile tipsiz gorseller sizar, o yuzden
-# kapatmak icin BU alan kullanilir. Crop blob store'u bu deployment'ta yoksa
-# (parser'in STORAGE_IMAGES_DIR'i tasinmis/silinmis) false yapin: aksi halde
-# arayuz kirik gorsel ikonlari basar.
-# VARSAYILAN false YAPILDI (2026-08-07, kullanici karari): crop blob store bu
-# deployment'ta kayip/erisilemez oldugu icin cevaba gorsel basilmasi istenmedi.
-# `CHATBOT_IMAGE_STORAGE_DIR` dogru bir mutlak yola isaret ettiginde tekrar
-# `true` yapilip acikca geri acilir.
+# Visible-image filter (ROADMAP 10d) -- the same principle as the chunker/parser
+# `[visual] exclude_types` (see chunker/config/default.toml [visual], root
+# CONFIG.md): `visual_type` values listed here are never shown to the user in a
+# separate visual channel, from the `images` field of top_n metadata
+# (see vectorize/cli.py::_node_payload) (see
+# answering_model.py::extract_visible_images). A layer INDEPENDENT of the
+# chunker's own exclude_types -- that filters entry into the chunk TEXT, this
+# filters the STRUCTURED display to the USER. Empty list = no type excluded
+# (default: all shown; if the type is unknown/missing it is shown anyway per
+# the include-when-in-doubt principle).
+# MASTER SWITCH: when false the visual channel is fully closed (the UI prints no
+# images at all). exclude_types is type-based and works with the "SHOW if the
+# type is unknown" principle -- even if you list every type, typeless images
+# leak through, so THIS field is used to shut them off. If the crop blob store
+# is not available in this deployment (the parser's STORAGE_IMAGES_DIR was
+# moved/deleted) set false: otherwise the UI prints broken image icons.
+# Set to false BY DEFAULT (2026-08-07, user decision): the crop blob store is
+# missing/inaccessible in this deployment, so images were not wanted in answers.
+# When `CHATBOT_IMAGE_STORAGE_DIR` points to a correct absolute path, set it
+# back to `true` to re-enable explicitly.
 enabled = false
 exclude_types = []
 
 [logging]
-# Kalıcı dosya loglaması (bkz. chatbot/chatbot/logging_setup.py). webapp
-# başlarken kurulur; her arka plan aşaması (özellikle SQL zinciri) chatbot/
-# logs/chatbot.log'a yazılır. Kör hata tahmini için değil, GERÇEK log için.
+# Persistent file logging (see chatbot/chatbot/logging_setup.py). Set up when
+# webapp starts; every background stage (especially the SQL chain) is written
+# to chatbot/logs/chatbot.log. For REAL logs, not for blind error-guessing.
 #
-# level: kök + chatbot.* + Flask/werkzeug/urllib. Sorgu metni INFO'da, SQL
-# HATALARI ERROR'da loglanır -- gizlilik için WARNING yaparsan sorgular gizlenir
-# ama hatalar görünmeye devam eder. CHATBOT_LOG_LEVEL env'i bunu ezer.
+# level: root + chatbot.* + Flask/werkzeug/urllib. The query text is logged at
+# INFO, SQL ERRORS at ERROR -- if you set WARNING for privacy the queries are
+# hidden but errors stay visible. CHATBOT_LOG_LEVEL env overrides this.
 level = "INFO"
-# text2sql (SQL linking/generation) için AYRI seviye. Öncelik SQL olduğundan
-# DEBUG: ara modelin her isteği/uyarısı/geri-düşüşü diske düşsün.
+# A SEPARATE level for text2sql (SQL linking/generation). Since SQL is a
+# priority, DEBUG: every intermediate request/warning/fallback drops to disk.
 text2sql_level = "DEBUG"
-# Dönen dosya: 5 MB'ta bir döner, 5 yedek tutulur (~30 MB tavan).
+# Rotating file: rotates every 5 MB, keeps 5 backups (~30 MB ceiling).
 max_bytes = 5000000
 backup_count = 5
-# Dosyaya ek olarak stderr'e de yaz (webapp'i terminalde izlerken canlı akış).
+# Also write to stderr in addition to the file (live stream while watching
+# webapp in a terminal).
 console = true
 
 [conversation_log]
-# Konuşma başına AYRINTILI kayıt (bkz. chatbot/chatbot/conversation_log.py,
-# karar: 2026-07-27, genişletme: 2026-08-06) -- yukarıdaki [logging]'den AYRI
-# bir kanal: [logging] hata ayıklama içindir (tüm oturumlar TEK metin
-# dosyasında karışık), burası her konuşmayı KENDİ klasöründe tutar:
-#   <dir>/<kanal>/<konusma_id>/{meta.json, turns.jsonl, conversation.log}
-# <kanal> = web (webapp) | whatsapp (wa_bot); <konusma_id> WhatsApp'ta
-# KULLANICI NUMARASIDIR -- yeni bir numaradan ilk mesaj klasörünü açar.
-# webapp'in `/api/chat` + `/api/chat/stream` ve wa_bot'un `/mesaj` yolları
-# ikisi de yazar.
+# A DETAILED per-conversation record (see chatbot/chatbot/conversation_log.py,
+# decision: 2026-07-27, extension: 2026-08-06) -- a SEPARATE channel from the
+# [logging] above: [logging] is for debugging (all sessions mixed in a single
+# text file), this keeps each conversation in its own folder:
+#   <dir>/<channel>/<conversation_id>/{meta.json, turns.jsonl, conversation.log}
+# <channel> = web (webapp) | whatsapp (wa_bot); <conversation_id> in WhatsApp
+# is the USER NUMBER -- the first message from a new number opens its folder.
+# Both webapp's `/api/chat` + `/api/chat/stream` and wa_bot's `/mesaj` paths
+# write here.
 enabled = true
-# Bileşen köküne (`chatbot/`) göre relatif.
+# Relative to the component root (`chatbot/`).
 dir = "logs/conversations"
-# O tur boyunca `logging` üzerinden akan HER arka plan satırı (chatbot.* +
-# text2sql'in SQL linking/generation ayrıntısı, `asyncio.to_thread`teki LLM
-# çağrıları dahil) konuşmanın KENDİ conversation.log'una da yönlensin mi
-# (karar: 2026-08-06, kullanıcı: "her konuşma ayrı tutulacak ve o konuşma
-# içerisindeki hem mesajlar hem de tüm arkaplan aşamaları logları tutulacak").
-# Not: bir satırın buraya düşmesi için [logging] level'dan geçmesi gerekir --
-# chunk listeleri gibi DEBUG satırları ancak level = "DEBUG" iken girer
-# (yapısal turns.jsonl'deki `trace` ise seviyeden bağımsız olarak tamdır).
+# Whether every background line flowing over `logging` during that turn
+# (chatbot.* + text2sql's SQL linking/generation detail, including the LLM
+# calls in `asyncio.to_thread`) is also routed to the conversation's OWN
+# conversation.log (decision: 2026-08-06, user: "each conversation kept
+# separate, and within that conversation both the messages and all background
+# stages are logged").
+# Note: a line only lands here if it passes the [logging] level -- DEBUG lines
+# like chunk lists enter only when level = "DEBUG" (the `trace` in the
+# structural turns.jsonl is complete regardless of level).
 capture_background = true
 
 [answering]
-# Cevaplama rolünün ÇIKTI SÖZLEŞMESİ (karar: 2026-08-05, bkz. chatbot/chatbot/
-# reply_contract.py). Canlı test bulgusu #1/#2/#5'in kök sebebi: bu depodaki her
-# LLM rolünün çıktısı doğrulanırken (reconciler ilk {...} bloğunu alır,
-# sqlretrieve bozuk JSON'da escalation'a girer) cevaplama rolü ham
-# `message.content`i doğrudan döndürüyordu -- ve o string kullanıcıya, hafızaya
-# VE (hafıza üzerinden) reconciler'ın prompt'una birden gidiyordu, yani tek bir
-# bozuk tur oturum-ömürlü bir arızaya dönüşüyordu.
+# OUTPUT CONTRACT of the answering role (decision: 2026-08-05, see chatbot/chatbot/
+# reply_contract.py). Root cause of live-test findings #1/#2/#5: while every other
+# LLM role's output in this repo is validated (reconciler takes the first {...}
+# block, sqlretrieve escalates on broken JSON) the answering role returned the
+# raw `message.content` directly -- and that string went to the user, to memory
+# AND (via memory) to the reconciler's prompt, so a single broken turn became a
+# session-lifetime failure.
 #
-# contract: model artık `{"reply": ..., "cited": [...]}` zarfı döner; zarfın
-# DIŞINDA kalan muhakeme/taslak/harmony işaretleri ayrıştırmada yapısal olarak
-# düşer. false = 2026-08-05 öncesi ham davranış (ACİL kaçış kapağı -- küçük
-# model zarfı hiç tutturamıyorsa geçici olarak kapatılır).
+# contract: the model now returns the `{"reply": ..., "cited": [...]}` envelope;
+# reasoning/draft/harmony markers OUTSIDE the envelope structurally fall out of
+# parsing. false = the pre-2026-08-05 raw behavior (URGENT escape hatch --
+# temporarily disabled if the small model can never hold the envelope).
 contract = true
-# Sözleşme ihlalinde (zarf yok ya da dejenere tekrar-döngüsü) kaç EK deneme.
-# Her deneme bir tam LLM round-trip'i, bu yüzden düşük: 1. Tükenirse kurtarılan
-# metne, o da yoksa kısa bir Türkçe kanı cevaba düşülür (turu ASLA düşürmez).
+# Extra attempts on contract violation (no envelope or a degenerate repeat-loop).
+# Each attempt is a full LLM round-trip, so keep it low: 1. On exhaustion it
+# falls back to the recovered text, else a short canned answer (NEVER drops the
+# turn).
 retries = 1
 
 [preamble]
-# Ön-bilgilendirme balonları (karar: 2026-08-06, bkz. chatbot/chatbot/
-# preamble.py). Ölçüm (logs/conversations `timing` olayları, 10 tur): `sql`
-# aşaması ortalama 18.5 sn, tam tur ortalama 14.6 sn, en kötü 32.6 sn. webapp'te
-# canlı trace paneli bu bekleyişi görünür kılıyor, WhatsApp'ta kullanıcı HİÇBİR
-# ŞEY görmüyor -- balon o boşluğu doldurur.
+# Pre-informational bubbles (decision: 2026-08-06, see chatbot/chatbot/
+# preamble.py). Measurement (logs/conversations `timing` events, 10 turns): the
+# `sql` stage averages 18.5 s, the full turn averages 14.6 s, worst 32.6 s. In
+# webapp the live trace panel makes this wait visible; in WhatsApp the user sees
+# NOTHING -- the bubble fills that gap.
 #
-# TAMAMEN DETERMİNİSTİK: ek bir LLM çağrısı YOKTUR. Metinler TR/EN havuzlardan
-# (birden fazla varyant, rastgele) seçilir, dil kullanıcının mesajından saf
-# kodla saptanır; seçilen cümlenin hangi havuzdan geldiği `pool` alanıyla
-# konuşma kaydına düşer.
+# FULLY DETERMINISTIC: no extra LLM call. The texts are picked from TR/EN pools
+# (multiple variants, random), the language is detected from the user's message
+# by pure code; which pool the chosen sentence came from is recorded with the
+# `pool` field into the conversation log.
 #
-# ŞU AN KAPALI (karar: 2026-08-06, kullanıcı: "şimdilik toggle off gibi bu
-# mekanizmayı kapatalım, demoya az kaldı, ben bunun üstünde sonra
-# çalışacağım"). KOD OLDUĞU GİBİ DURUYOR ve testleriyle birlikte yeşil --
-# `enabled = true` yapmak özelliği hiçbir kod değişikliği olmadan geri
-# açar. `false` iken `factory.py::preamble_settings_from_config` her kanal
-# için `None` döner, `Orchestrator` hiç balon üretmez: davranış 2026-08-06
-# öncesiyle BİREBİR aynıdır (hiçbir sıcak yol etkilenmez).
+# CURRENTLY OFF (decision: 2026-08-06, user: "let's turn this mechanism off for
+# now, demo is near, I'll work on it later"). The CODE stays as-is and green
+# with its tests -- setting `enabled = true` re-enables the feature with no code
+# change. When `false`, `factory.py::preamble_settings_from_config` returns
+# `None` per channel and the `Orchestrator` produces no bubbles at all: behavior
+# is EXACTLY as before 2026-08-06 (no hot path affected).
 enabled = false
-# Balon hangi kanallarda basılsın (web = webapp sohbet balonu, whatsapp =
-# gateway üzerinden AYRI bir mesaj). Listeden bir kanalı çıkarmak o servisi
-# 2026-08-06 öncesi davranışa döndürür. (`enabled = false` iken bu liste
-# okunmaz.)
+# Which channels the bubble is printed on (web = webapp chat bubble, whatsapp =
+# a SEPARATE message via the gateway). Removing a channel from the list returns
+# that service to the pre-2026-08-06 behavior. (Not read when `enabled = false`.)
 channels = ["web", "whatsapp"]
-# Tur bu süreyi (saniye) aşarsa İKİNCİ, "hâlâ üzerinde çalışıyorum" balonu
-# basılır -- o an hangi flow'da olduğumuz bilindiğinden daha isabetli bir
-# havuzdan. Kısa turlarda watchdog iptal edilir, ikinci balon HİÇ basılmaz
-# (WhatsApp'ta balon spam'i olmasın). 0 = watchdog kapalı.
-# 12: ölçülen tur ortalamasının (14.6) hemen altında -- ortalamadan yavaş
-# turlar ikinci balonu görür, hızlılar görmez.
+# If the turn exceeds this time (seconds), a SECOND "still working on it" bubble
+# is printed -- from a more accurate pool since we know which flow we're in.
+# On short turns the watchdog is cancelled and the second bubble is NEVER
+# printed (so there is no bubble spam in WhatsApp). 0 = watchdog disabled.
+# 12: just below the measured turn average (14.6) -- slower-than-average turns
+# see the second bubble, fast ones don't.
 watchdog_seconds = 12.0
-# t≈0'da bu flow'lardan birine gideceğimizi BİLİYORSAK ERKEN balon basılmaz.
-# Bu yalnız pinlenmiş/handoff turlarda bilinir (tam pipeline'da flow intent'ten
-# SONRA belli olur) -- ölçülen süreler: no_retrieval retrieval'a hiç gitmez,
-# doc_download deterministik tek SQL, default_topn top_n ~1.5 sn.
-# ÖNEMLİ: bu susturma WATCHDOG'U KAPSAMAZ. Liste bir TAHMİNDİR; watchdog o
-# tahminin tutmadığını yakalayan güvenlik ağıdır -- buradaki bir flow yine de
-# watchdog_seconds'ı aşarsa balon basılır (o tur için kullanıcının gördüğü İLK
-# mesaj olur). Aksi hâlde sessizliğin en uzun olduğu yerde susmuş olurduk.
+# If we KNOW at t≈0 we're going into one of these flows, the EARLY bubble is
+# not printed. This is only known on pinned/handoff turns (in the full pipeline
+# the flow is known only AFTER the intent) -- measured times: no_retrieval never
+# goes to retrieval, doc_download is a deterministic single SQL, default_topn
+# top_n ~1.5 s.
+# IMPORTANT: this silencing does NOT cover the WATCHDOG. The list is a GUESS;
+# the watchdog is the safety net catching a wrong guess -- a flow here that
+# still exceeds watchdog_seconds prints the bubble (it becomes the user's FIRST
+# visible message for that turn). Otherwise we'd be silent exactly where the
+# silence is longest.
 fast_flows = ["no_retrieval", "doc_download", "default_topn"]
 
 [evidence]
-# Cevabın altındaki katlanır "Kanıt (N)" paneli (webapp.py::addEvidence).
-# [DOC] satırları zaten chunk metnini taşır; bu tablo [SQL] satırlarının
-# ARKASINDAKİ chunk metnini çözen ek katmanı ayarlar (karar: 2026-08-07,
-# PROTOCOL KARAR-069, bkz. chatbot/chatbot/sql_evidence.py).
+# The collapsible "Evidence (N)" panel under the answer (webapp.py::addEvidence).
+# [DOC] rows already carry the chunk text; this table configures the extra layer
+# that resolves the chunk text BEHIND the [SQL] rows (decision: 2026-08-07,
+# PROTOCOL DECISION-069, see chatbot/chatbot/sql_evidence.py).
 #
-# Zincir: spec_value.value_id -> source_chunk_id/evidence (işaretçi, specs.db)
-#         -> chunk metni (chunker/storage/all_chunks.json, chunk_store.py)
-#         -> document.file_path (specs.db `document` tablosu)
-# false = 2026-08-07 öncesi davranış; specs.db/chunk korpusu HİÇ okunmaz,
-# [SQL] satırları yalnız kolon/değer tablosu olarak gösterilir.
+# Chain: spec_value.value_id -> source_chunk_id/evidence (pointer, specs.db)
+#        -> chunk text (chunker/storage/all_chunks.json, chunk_store.py)
+#        -> document.file_path (specs.db `document` table)
+# false = the pre-2026-08-07 behavior; specs.db/chunk corpus is NEVER read,
+# [SQL] rows are shown only as a column/value table.
 sql_chunks = true
-# Bir SQL satırının altında en fazla kaç kanıt chunk'ı listelenir
-# (tekilleştirmeden SONRA). `spec_value.evidence` bazı satırlarda onlarca
-# doğrulayıcı kaynak taşıyor -- hepsi basılırsa panel okunmaz olur.
+# Max evidence chunks listed under a single SQL row (AFTER dedup).
+# `spec_value.evidence` carries dozens of validating sources in some rows -- if
+# all were printed, the panel would be unreadable.
 max_chunks_per_row = 8
-# Kanıt chunk metninin kırpma sınırı (karakter). `extract_evidence_chunks`in
-# kendi 280'lik `snippet_len`inden BÜYÜK, çünkü orada amaç ÖNİZLEME, burada
-# metni gerçekten OKUTMAK.
+# The clip limit (characters) for the evidence chunk text. GREATER than
+# `extract_evidence_chunks`'s own 280 `snippet_len`, because there the aim is a
+# PREVIEW, here it is to actually READ the text.
 snippet_len = 1200
 
 [queue]
-# Redis + RQ kuyruğu (Grup G, S-02) -- I-03 (aynı mesaj iki kez teslim
-# edilirse iş bir kez çalışır) + I-04 (kabul edilen iş süreç ölse de
-# kaybolmaz). Bağlantı adresi (REDIS_URL) BİLİNÇLİ olarak burada DEĞİL --
-# kök CONFIG.md deseni: tuning burada, bağlantı .env'de.
+# Redis + RQ queue (Group G, S-02) -- I-03 (if the same message is delivered
+# twice the job runs once) + I-04 (an accepted job is not lost if the process
+# dies). The connection address (REDIS_URL) is DELIBERATELY not here -- root
+# CONFIG.md pattern: tuning here, connection in .env.
 #
-# `wa_bot.py`'nin enqueue ettiği, `worker/main.py`'nin dinlediği kuyruk adı.
+# The queue name that `wa_bot.py` enqueues into and `worker/main.py` listens to.
 wa_queue_name = "wa-mesaj"
-# Bir job bu süreyi (saniye) aşarsa RQ zorla düşürür. `session.
-# sql_gate_timeout_seconds` (1500s, en-kötü-durum tek SQL zinciri) ÜZERİNE
-# pay bırakılmış -- normal yavaş bir tur bu tavana çarpmasın.
+# If a job exceeds this time (seconds) RQ drops it forcibly. Above the
+# `session.sql_gate_timeout_seconds` (1500s, worst-case single SQL chain) with
+# headroom -- a normally slow turn should not hit this ceiling.
 job_timeout_seconds = 1800
-# Job worker'da beklenmeyen bir ALTYAPI istisnasıyla düşerse (Redis kopması,
-# bundle kurulumu patlaması -- `_isle` orchestrator hatalarını KENDİSİ
-# yakalayıp kullanıcıya cevap gönderir, bu sayaç onları kapsamaz) kaç kez
-# yeniden denenir (S-06 kararı).
+# If a job fails in the worker with an unexpected INFRASTRUCTURE exception
+# (Redis drop, bundle install crash -- `_isle` catches orchestrator errors
+# itself and replies to the user; this counter does not cover those) how many
+# times it's retried (S-06 decision).
 job_max_retries = 3
-# Yeniden denemeler arası bekleme (saniye) -- artan aralık, geçici bir
-# kopmanın (örn. Redis yeniden başlıyor) kendini çözmesine zaman bırakır.
+# Wait between retries (seconds) -- increasing intervals give a transient drop
+# (e.g. Redis restarting) time to resolve itself.
 job_retry_interval_seconds = [30, 120, 300]
-# `mesaj_id` idempotency anahtarının Redis'te canlı kalma süresi (saniye).
-# wa-gateway'in KENDİ dedup'ı (`_TEKRAR`) süreç-lokal ve restart'ta sıfırlanır;
-# bu TTL bot tarafında AYRI, kalıcı bir ikinci katman (I-03). 24 saat --
-# WA_BOT_SESSION_TTL_HOURS ile aynı büyüklük mertebesi, tekrar gönderimlerin
-# gerçekçi üst sınırı.
+# How long the `mesaj_id` idempotency key stays alive in Redis (seconds).
+# wa-gateway's OWN dedup (`_TEKRAR`) is process-local and resets on restart;
+# this TTL is a SEPARATE, persistent second layer on the bot side (I-03). 24
+# hours -- the same order of magnitude as WA_BOT_SESSION_TTL_HOURS, the
+# realistic upper bound of duplicate sends.
 idempotency_ttl_seconds = 86400

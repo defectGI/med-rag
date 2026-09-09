@@ -10,7 +10,7 @@ lines are ignored so a hand-authored file can carry section headers.
 
 intent golden item::
 
-    {"query": "de1000 fiyati ne kadar", "expected_intent": "quote_or_contact", "lang": "tr"}
+    {"query": "arveles dozu kac mg", "expected_intent": "medical_fact", "lang": "tr"}
 
 retrieval golden item::
 

@@ -1,15 +1,15 @@
-"""document_nodes.json okuma/yazma -- yaşam döngüsü tarafı.
+"""document_nodes.json read/write -- the lifecycle side.
 
-KAYIT ŞEMASI: `chatbot-corpus/document_info/classify_documents.py`
-tarafından tanımlanan şeklin AYNASI (identity/location/scan/doc_type/
-is_active/links + parse/chunk/facts blokları). Bileşenler birbirini
-import etmez; şekil dosya sözleşmesidir (bu deponun genel ilkesi).
+RECORD SHAPE: a MIRROR of the shape defined by
+`chatbot-corpus/document_info/classify_documents.py` (identity/location/scan/
+doc_type/is_active/links + parse/chunk/facts blocks). Components do not import
+each other; the shape is a file contract (this repo's general principle).
 
-YAZARLAR: api (upload kaydı oluşturur, silmede kaldırır) ve worker
-(parse/chunk bloklarını yazar). İkisi de yazmadan `fslock.file_lock`
-alır -- iki yazarın aynı an okuyup birbirinin kaydını silmesini
-engeller. Sahne dışı kalan tarama akışı (classify_documents) kilidi
-bilmez: onunla eşzamanlı koşum beklenmez (gecelik uzlaştırma, opsiyonel).
+WRITERS: api (creates an upload record, removes it on delete) and worker
+(writes the parse/chunk blocks). Both take `fslock.file_lock` before writing --
+prevents two writers from reading at the same time and deleting each other's
+record. The out-of-band scan flow (classify_documents) does not know the lock:
+concurrent runs with it are not expected (nightly reconciliation, optional).
 """
 
 from __future__ import annotations
@@ -50,8 +50,8 @@ def _atomic_write_json(path: Path, data: dict) -> None:
 
 
 def blank_pipeline_state() -> dict:
-    """`classify_documents.blank_pipeline_state` ile AYNI şekil --
-    parse/chunk/facts blokları PENDING."""
+    """SAME shape as `classify_documents.blank_pipeline_state` --
+    parse/chunk/facts blocks PENDING."""
     return {
         "parse": {
             "parser": None, "parser_version": None, "status": "PENDING",
@@ -151,11 +151,11 @@ def add_upload(
     note_title: str | None = None,
     registry: Path | None = None,
 ) -> dict:
-    """Yüklenen dosya için registry kaydı oluşturur (NEW). Aynı rel_path
-    zaten kayıtlıysa GÜNCELLEME kaydıdır (değişiklik semantiği, A4):
-    doc_id korunur, scan bloğu yeni hash ile ezilir, pipeline blokları
-    PENDING'e dönmez -- `parsed_from_hash != content_hash` kapısı yeniden
-    işlemeyi zaten tetikler."""
+    """Creates a registry record for the uploaded file (NEW). If the same
+    rel_path is already recorded it is an UPDATE record (change semantics, A4):
+    doc_id is preserved, the scan block is overwritten with the new hash, the
+    pipeline blocks do NOT revert to PENDING -- the `parsed_from_hash !=
+    content_hash` gate already triggers reprocessing."""
     path = registry or registry_path()
     rel_path = file_path.relative_to(belgeler_dir).as_posix()
     with file_lock(path):
@@ -176,7 +176,7 @@ def add_upload(
             record["scan"] = {
                 **_belge_record(file_path=file_path, rel_path=rel_path,
                                 doc_type=doc_type)["scan"],
-                # DELETED yapışkan kaydına yeniden aynı dosya geldiyse canlıya döner.
+                # if the same file comes back into a sticky DELETED record, it returns to active.
                 "scan_status": "MODIFIED",
             }
             record["is_active"] = True
@@ -191,9 +191,9 @@ def add_upload(
 
 
 def remove(doc_id: str, registry: Path | None = None) -> dict | None:
-    """Kaydı TAMAMEN düşürür (sticky DELETED bırakılmaz: med-rag'de silme
-    UI'dan geldiği için kullanıcının niyeti açık -- iz kalmaz). Silinen
-    kaydı döndürür, yoksa None."""
+    """Drops the record ENTIRELY (no sticky DELETED is left: in med-rag the
+    delete comes from the UI, so the user's intent is explicit -- no trace is
+    left). Returns the removed record, or None if absent."""
     path = registry or registry_path()
     with file_lock(path):
         data = load(path)
@@ -209,8 +209,8 @@ def remove(doc_id: str, registry: Path | None = None) -> dict | None:
 
 
 def update_record(doc_id: str, mutate, registry: Path | None = None) -> dict | None:
-    """Kaydı kilit altında günceller; `mutate(record)` yerinde değiştirir.
-    Kayıt yoksa None döner, mutate istisnası yükseltilirse yazım OLMAZ."""
+    """Updates the record under lock; `mutate(record)` mutates it in place.
+    Returns None if the record is absent; if mutate raises, nothing is written."""
     path = registry or registry_path()
     with file_lock(path):
         data = load(path)

@@ -1,24 +1,23 @@
-"""Tek-dosya pipeline koşucu (A2/A3/A4): process + delete.
+"""Single-document pipeline runner (A2/A3/A4): process + delete.
 
-Bir `doc_id` için üç aşamayı sıralar -- mevcut aşama kodları yeniden
-YAZILMAZ, doğrudan çağrılır (worker pipeline paketinin İÇİNDE olduğu
-için bu import'lar katman ihlali değildir):
+For one `doc_id` it runs the three stages in order -- the existing stage code
+is NOT rewritten, it is called directly (the worker is INSIDE the pipeline
+package, so these imports are not a layer violation):
 
-  parse   : run_parse_pipeline.phase0/1/2_one(record) -- tek kayıt,
-            registry'deki `parse` bloğunu doldurur
-  chunk   : chunker.cli.calistir(env) -- tüm korpusu yeniden üretir
-            (LLM'siz + ucuz, KARAR-012); yalnız bu dokümanın `chunk`
-            bloğu kilit altında registry'ye yazılır
-  vectorize: vectorize.cli.calistir(env) -- bayatlık kapısı sayesinde
-            yalnız imzası değişen kapsam (bu doküman) gömülür
+  parse   : run_parse_pipeline.phase0/1/2_one(record) -- a single record,
+            fills the `parse` block in the registry
+  chunk   : chunker.cli.calistir(env) -- re-produces the whole corpus
+            (LLM-free + cheap, KARAR-012); only this document's `chunk`
+            block is written to the registry under lock
+  vectorize: vectorize.cli.calistir(env) -- thanks to the staleness gate only
+            the scope whose signature changed (this document) is embedded
 
-Silme: forget_deleted_source (N-06) -- parse klasörü + all_chunks kaydı
-+ Qdrant noktaları + (varsa) spec kanıtları; ardından registry kaydı
-kaldırılır.
+Delete: forget_deleted_source (N-06) -- parse folder + all_chunks record
++ Qdrant points + (if any) spec evidence; then the registry record is removed.
 
-Değişiklik semantiği (A4): process_document HER ZAMAN önce türevleri
-unutturur (idempotent) sonra yeniden işler -- "eski hali silinmiş + yeni
-hali eklenmiş" tek kod yoludur; ayrı bir "reprocess" yolu açılmaz.
+Change semantics (A4): process_document ALWAYS forgets the derivatives first
+(idempotent) then reprocesses -- "old version removed + new version added" is
+the single code path; a separate "reprocess" path is not opened.
 """
 
 from __future__ import annotations
@@ -39,32 +38,53 @@ from medrag.pipeline.lifecycle.paths import (
 
 logger = logging.getLogger("medrag.pipeline.lifecycle.runner")
 
-#: durum yazım köprüsü -- worker on_status("parsing", "okuma") çağırır.
+#: status-write bridge -- worker calls on_status("parsing", "okuma").
 StatusFn = Callable[..., None]
 
 
 def _bootstrap_env() -> None:
-    """cli/.env + parser/.env yüklenir (PARSER_DIR/BELGELER_DIR/... +
-    LLM/VLM ayarları). `run_parse_pipeline._bootstrap` ile aynı disiplin;
-    worker girişi bunu bir kez çağırır."""
+    """Loads cli/.env + parser/.env (PARSER_DIR/BELGELER_DIR/... +
+    LLM/VLM settings). Same discipline as `run_parse_pipeline._bootstrap`;
+    the worker entry point calls this once."""
     from medrag.pipeline.cli import run_parse_pipeline as rpp
 
     rpp._bootstrap()
 
 
 def _chunk_output_root() -> Path:
-    """`run_chunk_pipeline.resolve_all_chunks_path` ile AYNI çözümleme
-    (CHUNKS_OUTPUT_DIR > CHUNKER_DIR/storage) -- kod tekrarı yerine
-    o modülden alınır."""
+    """SAME resolution as `run_chunk_pipeline.resolve_all_chunks_path`
+    (CHUNKS_OUTPUT_DIR > CHUNKER_DIR/storage) -- taken from that module rather
+    than duplicating the code."""
     from medrag.pipeline.cli import run_chunk_pipeline as rcp
 
     return rcp.resolve_all_chunks_path().parent
 
 
+def _reset_staleness(doc_id: str) -> None:
+    """Clears vectorize's local staleness signature for this document.
+
+    `process_document`, before processing, DELETES the Qdrant vectors with
+    `forget_derivatives` but vectorize's `state.json` signature remains. Then
+    `vectorize.cli.calistir` says "this scope is unchanged" and skips the
+    embedding -> the document stays "ready" with 0 vectors and is NEVER found
+    in retrieval (a note or a re-loaded file). Deleting the signature forces
+    calistir to re-embed."""
+
+    from medrag.pipeline.vectorize.layout import OutputLayout
+    from medrag.pipeline.vectorize.state import load_state, save_state
+
+    root = (os.environ.get("VECTORIZE_OUTPUT_DIR") or "").strip() or "./storage"
+    out = OutputLayout(root)
+    state = load_state(out.state_file)
+    if doc_id not in state:
+        return
+    state.pop(doc_id, None)
+    save_state(state, out.state_file)
+
+
 def _vector_store():
-    """Gerçek Qdrant istemcisi -- vectorize ile AYNI yapılandırma
-    (aynı koleksiyon/boyut politikası), config'i vectorize'in kendisi
-    çözer."""
+    """The real Qdrant client -- SAME configuration as vectorize (same
+    collection/size policy); the config is resolved by vectorize itself."""
     from medrag.pipeline.vectorize.config import load_config
     from medrag.pipeline.vectorize.store import QdrantVectorStore
 
@@ -85,13 +105,13 @@ def _vector_store():
 
 
 def _specs_connection() -> sqlite3.Connection:
-    """specs.db VARSA gerçek bağlantı, YOKSA minimal boş şemalı bellek-içi.
+    """REAL connection if specs.db exists, else a minimal empty-schema in-memory one.
 
-    med-rag'de facts kapalı olduğundan çoğu kurulumda specs.db ya yoktur
-    ya da kanıt taşımaz; `forget_source` bellek-içi boş `spec_value`
-    tablosunda no-op'tur. Tablosuz gerçek bir DB'ye denk gelirse
-    OperationalError yükselir -- bu durumda da bellek-içi yola düşülür
-    (silme, facts tarafı olmadan da tamamlanır)."""
+    Since facts is off in med-rag, in most setups specs.db either does not exist
+    or carries no evidence; `forget_source` no-ops in the in-memory empty
+    `spec_value` table. If it encounters a real table-less DB it raises
+    OperationalError -- in that case it also falls back to the in-memory path
+    (the delete completes without the facts side)."""
     from medrag.core.paths import resolve_specs_db_path
 
     try:
@@ -114,7 +134,7 @@ def _specs_connection() -> sqlite3.Connection:
 
 
 def forget_derivatives(record: dict) -> dict:
-    """Bir kaydın TÜM türevlerini siler (idempotent) -- A3/A4 ortak yolu."""
+    """Deletes ALL derivatives of a record (idempotent) -- the shared A3/A4 path."""
     from medrag.pipeline.forget_deleted_source import forget_deleted_source
 
     doc_id = record["identity"]["doc_id"]
@@ -140,7 +160,7 @@ def forget_derivatives(record: dict) -> dict:
 
 
 def process_document(doc_id: str, *, status: StatusFn) -> str:
-    """Tek dokümanı uçtan uca işler; son durumu ("ready"|"error") döner."""
+    """Processes a single document end-to-end; returns the final state ("ready"|"error")."""
     from medrag.pipeline.cli import run_parse_pipeline as rpp
 
     record = registry_rw.find(registry_rw.load(registry_path()), doc_id)
@@ -149,11 +169,11 @@ def process_document(doc_id: str, *, status: StatusFn) -> str:
                                  detail="registry kaydı bulunamadı")
         return "error"
 
-    # 1) Eski türevler (değişiklik/silme-sonrası-yeniden ekleme semantiği).
+    # 1) Old derivatives (change/delete-then-re-add semantics).
     status("parsing", "eski türevler temizleniyor")
     forget_derivatives(record)
 
-    # 2) parse -- tek kayıt üzerinde mevcut faz fonksiyonları.
+    # 2) parse -- existing phase functions on a single record.
     rel_path = record["location"]["rel_path"]
     src = Path(os.environ["BELGELER_DIR"]) / rel_path
     if not src.is_file():
@@ -179,17 +199,17 @@ def process_document(doc_id: str, *, status: StatusFn) -> str:
         durum_store.write_status(durum_dir(), doc_id, "error", detail=detail)
         return "error"
 
-    # 3) chunk -- tüm korpus yeniden üretilir (ucuz, LLM'siz); bu dokümanın
-    #    bloğu provenance'tan okunup kilit altında yazılır.
+    # 3) chunk -- the whole corpus is re-produced (cheap, LLM-free); this
+    #    document's block is read from provenance and written under lock.
     status("chunking", "chunk'lar yeniden üretiliyor")
     env = os.environ
     env["CHUNKER_INPUT_DIR"] = str(parsed_output_dir())
-    # İki env, iki okuyucu: chunker'ın OutputLayout'u CHUNKER_OUTPUT_DIR'i,
-    # `resolve_all_chunks_path` (registry bloğu için) CHUNKS_OUTPUT_DIR'i
-    # okur -- aynı kökü göstermeli, yoksa blok yanlış dosyadan okunur.
+    # Two env vars, two readers: chunker's OutputLayout reads CHUNKER_OUTPUT_DIR,
+    # `resolve_all_chunks_path` (for the registry block) reads CHUNKS_OUTPUT_DIR
+    # -- both must point at the same root, or the block is read from the wrong file.
     env["CHUNKER_OUTPUT_DIR"] = str(_chunk_output_root())
     env["CHUNKS_OUTPUT_DIR"] = str(_chunk_output_root())
-    env.pop("PARSER_DIR", None)  # chunker'ın kendi PARSER_DIR'i karışmasın (bkz. run_chunk_pipeline)
+    env.pop("PARSER_DIR", None)  # keep chunker's own PARSER_DIR out of the way (see run_chunk_pipeline)
     from medrag.pipeline.chunker import cli as chunker_cli
 
     rc = chunker_cli.calistir(env=env)
@@ -205,9 +225,16 @@ def process_document(doc_id: str, *, status: StatusFn) -> str:
     }
     registry_rw.update_record(doc_id, lambda r: r.update({"chunk": block}))
 
-    # 4) vectorize -- bayatlık kapısı yalnız değişen kapsamı gömer.
+    # 4) vectorize -- the staleness gate embeds only the changed scope.
     status("vectorizing", "embedding")
     from medrag.pipeline.vectorize import cli as vec_cli
+
+    # forget_derivatives DELETED this document's Qdrant vectors; vectorize's
+    # local staleness signature (state.json) is still there, so it does NOT
+    # re-embed, saying "unchanged, skipping" -> the document stays "ready" with
+    # 0 vectors and is never found in retrieval (the notes-not-in-answer bug).
+    # Clear this document's signature so calistir re-embeds it.
+    _reset_staleness(doc_id)
 
     stats = vec_cli.calistir(env=env)
     logger.info("vectorize: %s nokta (%s)", stats.points_written, doc_id)
@@ -222,12 +249,12 @@ def process_document(doc_id: str, *, status: StatusFn) -> str:
 
 
 def delete_document(doc_id: str, *, status: StatusFn) -> str:
-    """Dokümanı ve TÜM türevlerini siler; "deleted" döner (ya da fırlatır)."""
+    """Deletes the document and ALL its derivatives; returns "deleted" (or raises)."""
     status("parsing", "siliniyor")
     data = registry_rw.load(registry_path())
     record = registry_rw.find(data, doc_id)
     if record is None:
-        # registry kaydı yok ama durum dosyası asılı kalmış olabilir.
+        # no registry record, but a status file may be left hanging.
         durum_store.remove_status(durum_dir(), doc_id)
         return "deleted"
     forget_derivatives(record)

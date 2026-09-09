@@ -1,38 +1,39 @@
-"""N-06 (I-08): silinen bir kaynagin TUM turevlerini sistemden cikaran ortak
-"kaynagi unut" ust-fonksiyonu.
+"""N-06 (I-08): the shared "forget the source" top-level function that removes
+ALL derivatives of a deleted source from the system.
 
-Tarayici (`chatbot-corpus/document_info/classify_documents.py`) bir dosya
-diskten kalktiginda kaydi SILMEZ, `scan_status=DELETED` ile sticky birakir
-(doc_id KORUNUR -- schema karari). Ama hicbir asama o dokumanin daha once
-urettigi turevleri temizlemiyordu; bu modul o eksigi kapatir.
+When the scanner (`chatbot-corpus/document_info/classify_documents.py`) sees a
+file disappear from disk it does NOT delete the record, it leaves it sticky with
+`scan_status=DELETED` (doc_id is PRESERVED -- a schema decision). But no stage
+cleaned up the derivatives that document had produced before; this module fills
+that gap.
 
-Talimat (N-06 + O-11 docstring'i): I-08 (chunk/vektor tarafi) ile I-17
-(spec kanit tarafi) AYNI "kaynagi unut" kavraminin iki ucudur, iki ayri
-silme mantigi YAZILMAZ. Bu yuzden burasi spec tarafi icin
-`medrag.pipeline.facts.forget_source.forget_source`i (O-11, K-70/K-78) DOGRUDAN
-cagirir -- kendi DELETE/UPDATE mantigini tekrar etmez; yalniz O-11'in
-kapsamadigi UC parcayi (parse ciktisi, chunk kaydi, Qdrant noktalari) ekler:
+Instruction (N-06 + O-11 docstring): I-08 (chunk/vector side) and I-17 (spec
+evidence side) are the two ends of the SAME "forget the source" concept; two
+separate delete logics are NOT written. So for the spec side this calls
+`medrag.pipeline.facts.forget_source.forget_source` (O-11, K-70/K-78) DIRECTLY
+-- it does not repeat its OWN DELETE/UPDATE logic; it only adds the THREE pieces
+O-11 does not cover (parse output, chunk record, Qdrant points):
 
-  1. parse cikti klasoru -- `PARSED_OUTPUT_DIR/<doc_type>_<doc_id>/` (bkz.
-     `pipeline/cli/run_parse_pipeline.py::_group_dir`, AYNI isimlendirme).
-     `doc_type` bilinmiyorsa (ya da tarama sirasinda degismisse) klasor
-     `_<doc_id>` sonekiyle GLOB edilir -- isimlendirme kaymasina karsi.
-  2. `all_chunks.json`daki `documents[doc_id]` kaydi -- dosya `run_chunk_
-     pipeline.py`nin kullandigi ayni atomik yaz-sonra-degistir deseniyle
-     geri yazilir (yarim yazimda dosya bozulmaz).
-  3. Qdrant noktalari -- `vector_store.replace_scope(doc_id, [])` (mekanizma
-     zaten var, KARAR-004: bos liste = yalniz sil, hic upsert etme).
+  1. the parse output folder -- `PARSED_OUTPUT_DIR/<doc_type>_<doc_id>/` (see
+     `pipeline/cli/run_parse_pipeline.py::_group_dir`, SAME naming).
+     If `doc_type` is unknown (or changed during scanning) the folder is GLOBbed
+     by the `_<doc_id>` suffix -- to guard against naming drift.
+  2. the `documents[doc_id]` record in `all_chunks.json` -- the file is written
+     back with the same atomic write-then-replace pattern `run_chunk_pipeline.py`
+     uses (a half-write does not corrupt the file).
+  3. Qdrant points -- `vector_store.replace_scope(doc_id, [])` (the mechanism
+     already exists, KARAR-004: an empty list = delete only, do not upsert).
 
-Idempotentlik: her adim kendi yoklugunu sessizce KABUL eder -- klasor zaten
-yoksa `removed` listesine girmez, `all_chunks.json`da kayit yoksa `False`
-doner, Qdrant `replace_scope` bir filtreyle siler (eslesen nokta yoksa no-op),
-`forget_source` eslesen `evidence[]` yoksa hicbir satira dokunmaz. Yani bu
-fonksiyon YARIDA KESILIP TEKRAR COSTURULABILIR -- ikinci cagri ilkiyle AYNI
-sonucu (bos degisiklik) uretir, hata FIRLATMAZ.
+Idempotency: each step silently ACCEPTS its own absence -- if the folder does
+not exist it is not added to `removed`, if there is no record in `all_chunks.json`
+it returns `False`, Qdrant's `replace_scope` deletes by a filter (no-op if no
+matching point), `forget_source` touches no row if there is no matching
+`evidence[]`. So this function can be CUT OFF MIDWAY AND RE-RUN -- the second
+call yields the SAME result (empty change) as the first, and raises no error.
 
-Katman kurali: bu modul `medrag.core`e baglanabilir, kendi paketi icindeki
-`medrag.pipeline.facts`i import eder (pipeline-ici, ihlal degil) ama
-`medrag.api`yi HIC import etmez.
+Layer rule: this module may depend on `medrag.core` and imports
+`medrag.pipeline.facts` within its own package (in-pipeline, not a violation)
+but NEVER imports `medrag.api`.
 """
 from __future__ import annotations
 
@@ -49,16 +50,16 @@ from medrag.pipeline.facts.forget_source import forget_source
 
 
 class ScopeVectorStore(Protocol):
-    """`QdrantVectorStore.replace_scope` ile ayni imza -- gercek Qdrant
-    baglantisi gerektirmeden testte sahte bir kayitci gecirilebilsin diye."""
+    """Same signature as `QdrantVectorStore.replace_scope` -- so a fake recorder
+    can be passed in a test without a real Qdrant connection."""
 
     def replace_scope(self, scope_id: str, points: list[Any]) -> None: ...
 
 
 @dataclass
 class ForgetDeletedSourceResult:
-    """Her adimin ne yaptigini raporlar -- N-09'un "silinen kaynagin
-    turevleri" satiri ve testler bunu okur."""
+    """Reports what each step did -- N-09's "deleted source derivatives" row and
+    the tests read this."""
 
     doc_id: str
     parse_dirs_removed: list[str] = field(default_factory=list)
@@ -69,10 +70,11 @@ class ForgetDeletedSourceResult:
 
 def _remove_parse_output(parsed_output_dir: Path, doc_id: str,
                           doc_type: str | None) -> list[str]:
-    """`PARSED_OUTPUT_DIR/<doc_type>_<doc_id>/` klasorunu (varsa) siler.
-    `doc_type` verilmemisse ya da kayitli deger diskteki eski klasorle
-    uyusmuyorsa `_<doc_id>` sonekli TUM klasorler bulunup silinir (birden
-    fazla eslesme cikmasi normalde beklenmez, ama silme YARIM kalmasin)."""
+    """Deletes the `PARSED_OUTPUT_DIR/<doc_type>_<doc_id>/` folder (if present).
+    If `doc_type` is not given, or the recorded value does not match the old
+    folder on disk, ALL folders with the `_<doc_id>` suffix are found and deleted
+    (more than one match is normally not expected, but the delete must not be
+    left HALF-done)."""
     if not parsed_output_dir.is_dir():
         return []
 
@@ -95,8 +97,8 @@ def _remove_parse_output(parsed_output_dir: Path, doc_id: str,
 
 
 def _atomic_write_json(path: Path, data: dict) -> None:
-    """Yaz-sonra-degistir -- `run_chunk_pipeline.py::_atomic_write_json` ile
-    AYNI desen (yarim yazimda dosya bozulmaz)."""
+    """Write-then-replace -- SAME pattern as `run_chunk_pipeline.py::_atomic_write_json`
+    (a half-write does not corrupt the file)."""
     fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), prefix=".tmp_", suffix=".json")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -108,10 +110,11 @@ def _atomic_write_json(path: Path, data: dict) -> None:
 
 
 def _remove_from_all_chunks(all_chunks_path: Path, doc_id: str) -> bool:
-    """`all_chunks.json`in `documents[doc_id]` kaydini duser. Dosya yoksa,
-    bozuksa ya da kayit zaten yoksa (idempotent ikinci cagri) sessizce
-    `False` doner -- HATA FIRLATMAZ (chunk_store.py'nin hata politikasiyla
-    ayni ilke: turev temizligi bir EK, korpus dosyasi olmadan da calismali)."""
+    """Drops the `documents[doc_id]` record of `all_chunks.json`. If the file is
+    missing, corrupt, or the record is already absent (idempotent second call) it
+    silently returns `False` -- does NOT raise (same principle as chunk_store.py's
+    error policy: derivative cleanup is an ADDITION, it must work without the
+    corpus file)."""
     if not all_chunks_path.is_file():
         return False
     try:
@@ -138,16 +141,16 @@ def forget_deleted_source(
     specs_con: sqlite3.Connection,
     commit: bool = True,
 ) -> ForgetDeletedSourceResult:
-    """Bir `doc_id`nin TUM turevlerini siler: parse ciktisi + chunk kaydi +
-    Qdrant noktalari + spec kanitlari (I-08 kabulunun tam kapsami).
+    """Deletes ALL derivatives of one `doc_id`: parse output + chunk record +
+    Qdrant points + spec evidence (the full I-08 acceptance scope).
 
-    Cagiran taraf (gece kosusunun N.2 silme akisi) her `scan_status=DELETED`
-    kaydi icin bunu bir kez cagirir; idempotent oldugu icin yarida kesilip
-    tekrar calistirilabilir (bkz. modul docstring'i)."""
+    The caller (the nightly run's N.2 delete flow) calls this once for each
+    `scan_status=DELETED` record; being idempotent, it can be cut off midway and
+    re-run (see the module docstring)."""
     parse_dirs_removed = _remove_parse_output(Path(parsed_output_dir), doc_id, doc_type)
     chunk_entry_removed = _remove_from_all_chunks(Path(all_chunks_path), doc_id)
-    # KARAR-004: bos liste = kapsamin TUM eski noktalarini sil, hic upsert etme.
-    # Eslesen nokta yoksa bu bir no-op'tur (idempotent).
+    # KARAR-004: an empty list = delete ALL the scope's old points, do not upsert.
+    # If no matching point exists this is a no-op (idempotent).
     vector_store.replace_scope(doc_id, [])
     spec_evidence = forget_source(specs_con, doc_ids=[doc_id], commit=commit)
 

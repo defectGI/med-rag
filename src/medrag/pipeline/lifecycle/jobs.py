@@ -1,17 +1,18 @@
-"""Dosya-tabanlı iş kuyruğu (A6): redis'siz, tek worker varsayımıyla.
+"""File-based job queue (A6): no redis, single-worker assumption.
 
-Kuyruk = bir dizindeki `{job_id}.json` dosyaları. İddia (claim) atomiktir:
-dosyanın `.json` -> `.claim` yeniden adlandırmasıyla alınır (aynı işi iki
-kez almayı OS düzeyinde imkânsız kılar). İş bitince `.claim` silinir.
+The queue = the `{job_id}.json` files in a directory. The claim is atomic:
+it is taken by renaming the file `.json` -> `.claim` (which makes taking the
+same job twice impossible at the OS level). When the job finishes, `.claim`
+is deleted.
 
-Kesinti toparlama: worker ölürse `.claim` dosyası diskte kalır; yeniden
-başlayınca `claim_next` önce `.claim` dosyalarını döner -- işler kaybolmaz
-(action'lar idempotent olduğu için iki kez koşmak güvenlidir: process
-yeniden parse eder, delete yeniden siler ve sessizce no-op olur).
+Interrupt recovery: if the worker dies the `.claim` file stays on disk; on
+restart `claim_next` first returns the `.claim` files -- jobs are not lost
+(actions are idempotent, so running twice is safe: process re-parses, delete
+re-deletes and silently no-ops).
 
-Sıra: job_id zaman damgalıdır (`YYYYmmdd-HHMMSS-<uuid8>`), dosya adına
-göre alfabetik sıralama = kuyruğa girme sırası (aynı saniyede uuid
-karışabilir; tek kullanıcı için yeterli).
+Order: job_id is timestamped (`YYYYmmdd-HHMMSS-<uuid8>`), so alphabetic sort
+of the file names = order of enqueue (uuids may interleave within the same
+second; sufficient for a single user).
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ from pathlib import Path
 
 logger = logging.getLogger("medrag.pipeline.lifecycle.jobs")
 
-#: Kuyrukta işaretli olabilecek eylemler. api yazar, worker yorumlar.
+#: Actions that can be marked in the queue. api writes, worker interprets.
 ACTIONS = ("process", "delete")
 
 
@@ -71,7 +72,7 @@ def _atomic_write_json(path: Path, data: dict) -> None:
 
 
 def enqueue(jobs_dir: Path, *, action: str, doc_id: str, rel_path: str) -> Job:
-    """Yeni iş dosyası yazar; `isler/{job_id}.json`."""
+    """Writes a new job file; `isler/{job_id}.json`."""
     if action not in ACTIONS:
         raise ValueError(f"bilinmeyen eylem: {action!r} (geçerli: {ACTIONS})")
     jobs_dir.mkdir(parents=True, exist_ok=True)
@@ -103,13 +104,13 @@ def _parse_job_file(path: Path) -> Job | None:
 
 
 def recover(jobs_dir: Path) -> int:
-    """Kesinti toparlama: kalan `.claim` dosyalarını `.json`'a geri çevirir.
+    """Interrupt recovery: turns leftover `.claim` files back into `.json`.
 
-    Worker BAŞLANGICINDA bir kez çağrılır -- önceki çalışmada yarıda kalan
-    işler kuyruğa geri döner (action'lar idempotent). `claim_next` içine
-    YERLEŞTİRİLMEMİŞTİR: orada olsaydı `.claim` döndürmek, aynı işin İKİ
-    kez iddia edilebilmesine (atomik tek-kazanan garantisinin kırılmasına)
-    yol açardı. Dönen değer: geri alınan iş sayısı."""
+    Called once at worker START -- jobs interrupted in a previous run return to
+    the queue (actions are idempotent). It is NOT EMBEDDED in `claim_next`:
+    if it were there, returning a `.claim` would allow the SAME job to be
+    claimed TWICE (breaking the atomic single-winner guarantee). Return value:
+    the number of jobs recovered."""
     if not jobs_dir.is_dir():
         return 0
     n = 0
@@ -123,12 +124,12 @@ def recover(jobs_dir: Path) -> int:
 
 
 def claim_next(jobs_dir: Path) -> Job | None:
-    """Sıradaki işi atomik olarak iddia eder (`.json` -> `.claim`).
+    """Atomically claims the next job (`.json` -> `.claim`).
 
-    Yalnızca `.json` dosyaları denenir (en eski önce); rename OS düzeyinde
-    atomiktir -- aynı işi iki süreç birden alamaz. Okunamayan dosyalar
-    silinir (tek bozuk dosya kuyruğu sonsuza dek kilitlemesin). Kalan
-    `.claim` dosyaları İDDİA EDİLMEZ -- bunlar `recover()`ın işidir."""
+    Only `.json` files are tried (oldest first); the rename is atomic at the OS
+    level -- two processes cannot take the same job. Unreadable files are
+    deleted (one corrupt file must not block the queue forever). Left
+    `.claim` files are NOT CLAIMED -- they are `recover()`'s job."""
     if not jobs_dir.is_dir():
         return None
 
@@ -147,7 +148,7 @@ def claim_next(jobs_dir: Path) -> Job | None:
 
 
 def finish_job(jobs_dir: Path, job: Job) -> None:
-    """İşin `.claim` dosyasını siler (idempotent)."""
+    """Deletes the job's `.claim` file (idempotent)."""
     (jobs_dir / f"{job.job_id}.claim").unlink(missing_ok=True)
 
 

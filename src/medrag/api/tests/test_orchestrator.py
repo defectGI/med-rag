@@ -101,19 +101,19 @@ class _FakeAnsweringModel:
 
 
 def test_load_strategy_reads_existing_file():
-    text = load_strategy("product_fact")
-    assert "product_fact" in text
+    text = load_strategy("medical_fact")
+    assert "medical_fact" in text
 
 
 def test_load_strategy_missing_file_returns_empty():
     assert load_strategy("no_such_intent") == ""
 
 
-def test_load_strategy_doc_question_has_real_guidance():
-    """doc_question.md (med-rag, C1): zorunlu kanıt/atıf kuralını taşıyan
+def test_load_strategy_medical_fact_has_real_guidance():
+    """medical_fact.md (med-rag, C1): zorunlu kanıt/atıf kuralını taşıyan
     gerçek rehber olmalı."""
-    text = load_strategy("doc_question")
-    assert "doc_question" in text
+    text = load_strategy("medical_fact")
+    assert "medical_fact" in text
     assert "to be filled in when this intent's strategy is addressed" not in text
     assert "MUST carry an inline citation" in text
     assert "Conflicting sources" in text
@@ -224,7 +224,7 @@ def test_different_sessions_do_not_share_history():
 def _orchestrator_with_reconciler(reconciler, classifier=None):
     flow = _FakeFlow()
     router = Router({"default_topn": flow}, Routing(default_flow="default_topn", intents={}))
-    classifier = classifier or _FakeClassifier(IntentLabel.PRODUCT_FACT)
+    classifier = classifier or _FakeClassifier(IntentLabel.MEDICAL_FACT)
     model = _FakeAnsweringModel()
     store = SessionStateStore()
     orch = Orchestrator(
@@ -277,7 +277,7 @@ def test_reconciler_raw_query_stored_in_memory_not_resolved():
     memory = ConversationMemory()
     flow = _FakeFlow()
     router = Router({"default_topn": flow}, Routing(default_flow="default_topn", intents={}))
-    orch = Orchestrator(_FakeClassifier(IntentLabel.PRODUCT_FACT), router,
+    orch = Orchestrator(_FakeClassifier(IntentLabel.MEDICAL_FACT), router,
                         _FakeAnsweringModel(), memory, reconciler=rec)
     asyncio.run(orch.handle("s1", "ham mesaj"))
     # memory must hold what the user ACTUALLY typed, not the resolved form.
@@ -338,7 +338,7 @@ def test_intent_raw_text_emits_intent_raw_trace():
 def test_intent_raw_text_absent_by_default_no_trace():
     flow = _FakeFlow()
     router = Router({"default_topn": flow}, Routing(default_flow="default_topn", intents={}))
-    classifier = _FakeClassifier(IntentLabel.PRODUCT_FACT)  # raw_text=None
+    classifier = _FakeClassifier(IntentLabel.MEDICAL_FACT)  # raw_text=None
     orch = Orchestrator(classifier, router, _FakeAnsweringModel(), ConversationMemory())
     events: list[tuple] = []
     asyncio.run(orch.handle("s1", "soru", lambda s, d: events.append((s, d))))
@@ -354,7 +354,7 @@ def test_fused_intent_skips_classifier():
     new_state = SessionState(task="t", focus="f")
     result = ReconcileResult(resolved_query="de1000 gücü", new_state=new_state,
                              transition="continue", confidence=0.9,
-                             intent="product_fact")
+                             intent="medical_fact")
     rec = _FakeReconciler(result)
     orch, flow, classifier, _, _ = _orchestrator_with_reconciler(rec)
 
@@ -367,7 +367,7 @@ def test_fused_intent_skips_classifier():
 def test_fused_intent_emits_fusion_marker_in_trace():
     result = ReconcileResult(resolved_query="q", new_state=SessionState(task="t"),
                              transition="continue", confidence=0.8,
-                             intent="product_fact")
+                             intent="medical_fact")
     rec = _FakeReconciler(result)
     orch, _, _, _, _ = _orchestrator_with_reconciler(rec)
     events: list[tuple] = []
@@ -404,7 +404,7 @@ def test_without_reconciler_uses_raw_query():
     # Without a Reconciler (optional) the old behavior: raw query goes straight through.
     flow = _FakeFlow()
     router = Router({"default_topn": flow}, Routing(default_flow="default_topn", intents={}))
-    classifier = _FakeClassifier(IntentLabel.PRODUCT_FACT)
+    classifier = _FakeClassifier(IntentLabel.MEDICAL_FACT)
     orch = Orchestrator(classifier, router, _FakeAnsweringModel(), ConversationMemory())
     asyncio.run(orch.handle("s1", "ham sorgu"))
     assert classifier.seen == ["ham sorgu"]
@@ -421,7 +421,7 @@ def test_last_results_persisted_without_reconciler():
     hits = [RetrievalResult(id="row_1", score=1.0, metadata={"model": "PN1197"})]
     flow = _FakeFlow(results=hits)
     router = Router({"default_topn": flow}, Routing(default_flow="default_topn", intents={}))
-    classifier = _FakeClassifier(IntentLabel.PRODUCT_FACT)
+    classifier = _FakeClassifier(IntentLabel.MEDICAL_FACT)
     store = SessionStateStore()
     orch = Orchestrator(classifier, router, _FakeAnsweringModel(), ConversationMemory(),
                         session_state=store)
@@ -448,7 +448,7 @@ def test_last_results_persisted_with_reconciler_alongside_other_state():
 def test_last_results_overwritten_not_accumulated_across_turns():
     flow = _FakeFlow()
     router = Router({"default_topn": flow}, Routing(default_flow="default_topn", intents={}))
-    classifier = _FakeClassifier(IntentLabel.PRODUCT_FACT)
+    classifier = _FakeClassifier(IntentLabel.MEDICAL_FACT)
     store = SessionStateStore()
     orch = Orchestrator(classifier, router, _FakeAnsweringModel(), ConversationMemory(),
                         session_state=store)
@@ -471,7 +471,7 @@ def test_followups_reach_answering_model_from_previous_turn(monkeypatch):
     # fresh get() after L4), so followups could never reach the answering model.
     flow = _FakeFlow()
     router = Router({"default_topn": flow}, Routing(default_flow="default_topn", intents={}))
-    classifier = _FakeClassifier(IntentLabel.PRODUCT_FACT)
+    classifier = _FakeClassifier(IntentLabel.MEDICAL_FACT)
     store = SessionStateStore()
     store.set("s1", SessionState(last_results=[
         RetrievalResult(id="r1", score=1.0, metadata={
@@ -487,7 +487,7 @@ def test_followups_reach_answering_model_from_previous_turn(monkeypatch):
 def test_followups_empty_on_first_turn():
     flow = _FakeFlow()
     router = Router({"default_topn": flow}, Routing(default_flow="default_topn", intents={}))
-    classifier = _FakeClassifier(IntentLabel.PRODUCT_FACT)
+    classifier = _FakeClassifier(IntentLabel.MEDICAL_FACT)
     store = SessionStateStore()
     model = _FakeAnsweringModel()
     orch = Orchestrator(classifier, router, model, ConversationMemory(), session_state=store)
@@ -521,7 +521,7 @@ def test_document_hint_suggests_real_file_for_single_product_this_turn():
         "product_code": "PN1309", "key": "weight", "status": "present",
     })])
     router = Router({"default_topn": flow}, Routing(default_flow="default_topn", intents={}))
-    classifier = _FakeClassifier(IntentLabel.PRODUCT_FACT)
+    classifier = _FakeClassifier(IntentLabel.MEDICAL_FACT)
     lookup = _FakeDocumentLookup([
         DocumentRow(doc_id="d1", model="PN1309", doc_type="DATASHEET", file_name="PN5106_Datasheet.pdf"),
     ])
@@ -544,7 +544,7 @@ def test_document_hint_skipped_when_multiple_products_in_results():
         RetrievalResult(id="r2", score=1.0, metadata={"product_code": "PN1316", "key": "weight"}),
     ])
     router = Router({"default_topn": flow}, Routing(default_flow="default_topn", intents={}))
-    classifier = _FakeClassifier(IntentLabel.PRODUCT_FACT)
+    classifier = _FakeClassifier(IntentLabel.MEDICAL_FACT)
     lookup = _FakeDocumentLookup([
         DocumentRow(doc_id="d1", model="PN1309", doc_type="DATASHEET", file_name="a.pdf"),
     ])
@@ -562,7 +562,7 @@ def test_document_hint_empty_when_lookup_has_no_file():
     active file for it -- no invention, returns empty."""
     flow = _FakeFlow([RetrievalResult(id="r1", score=1.0, metadata={"product_code": "PN1309", "key": "weight"})])
     router = Router({"default_topn": flow}, Routing(default_flow="default_topn", intents={}))
-    classifier = _FakeClassifier(IntentLabel.PRODUCT_FACT)
+    classifier = _FakeClassifier(IntentLabel.MEDICAL_FACT)
     lookup = _FakeDocumentLookup([])
     model = _FakeAnsweringModel()
     orch = Orchestrator(classifier, router, model, ConversationMemory(), document_lookup=lookup)
@@ -577,7 +577,7 @@ def test_document_hint_disabled_when_no_lookup_injected():
     wiring/tests) zero behavior change -- returns empty."""
     flow = _FakeFlow([RetrievalResult(id="r1", score=1.0, metadata={"product_code": "PN1309", "key": "weight"})])
     router = Router({"default_topn": flow}, Routing(default_flow="default_topn", intents={}))
-    classifier = _FakeClassifier(IntentLabel.PRODUCT_FACT)
+    classifier = _FakeClassifier(IntentLabel.MEDICAL_FACT)
     model = _FakeAnsweringModel()
     orch = Orchestrator(classifier, router, model, ConversationMemory())
 
@@ -594,7 +594,7 @@ def test_document_hint_yields_priority_to_previous_turn_followup():
     up."""
     flow = _FakeFlow([RetrievalResult(id="r1", score=1.0, metadata={"product_code": "PN1309", "key": "weight"})])
     router = Router({"default_topn": flow}, Routing(default_flow="default_topn", intents={}))
-    classifier = _FakeClassifier(IntentLabel.PRODUCT_FACT)
+    classifier = _FakeClassifier(IntentLabel.MEDICAL_FACT)
     lookup = _FakeDocumentLookup([
         DocumentRow(doc_id="d1", model="PN1309", doc_type="DATASHEET", file_name="a.pdf"),
     ])
@@ -625,7 +625,7 @@ def test_document_hint_ignores_doc_download_own_results():
         "file_name": "a.pdf", "requested": True,
     })])
     router = Router({"default_topn": flow}, Routing(default_flow="default_topn", intents={}))
-    classifier = _FakeClassifier(IntentLabel.DOC_DOWNLOAD)
+    classifier = _FakeClassifier(IntentLabel.MEDICAL_FACT)
     lookup = _FakeDocumentLookup([
         DocumentRow(doc_id="d2", model="PN1309", doc_type="BROCHURE", file_name="b.pdf"),
     ])
@@ -716,7 +716,7 @@ def _orchestrator_with_pinned_flow(pinned_flow, *, reconciler=None, classifier=N
         {"default_topn": default_flow, "comparison": pinned_flow},
         Routing(default_flow="default_topn", intents={}),
     )
-    classifier = classifier or _FakeClassifier(IntentLabel.PRODUCT_FACT)
+    classifier = classifier or _FakeClassifier(IntentLabel.MEDICAL_FACT)
     model = _FakeAnsweringModel()
     store = SessionStateStore()
     orch = Orchestrator(classifier, router, model, ConversationMemory(),
@@ -727,7 +727,7 @@ def _orchestrator_with_pinned_flow(pinned_flow, *, reconciler=None, classifier=N
 def _pinned_state(**kw) -> SessionState:
     return SessionState(
         task="karşılaştırma", focus="de1000 vs de1100",
-        pinned=PinnedFlow(flow="comparison", intent="product_fact",
+        pinned=PinnedFlow(flow="comparison", intent="comparison",
                           expected={"sides": ["de1000", "de1100"]}),
         **kw,
     )
@@ -796,7 +796,7 @@ def test_pinned_session_uses_pin_intent_as_strategy_key():
     store.set("s1", _pinned_state())
     asyncio.run(orch.handle("s1", "soru"))
     _, _, strategy_prompt, _ = model.calls[0]
-    assert "product_fact" in strategy_prompt
+    assert "comparison" in strategy_prompt
 
 
 def test_pinned_session_falls_back_to_full_pipeline_when_pin_breaks():
@@ -885,7 +885,7 @@ def test_pinned_session_records_real_query_in_memory():
                     Routing(default_flow="default_topn", intents={}))
     store = SessionStateStore()
     store.set("s1", _pinned_state())
-    orch = Orchestrator(_FakeClassifier(IntentLabel.PRODUCT_FACT), router,
+    orch = Orchestrator(_FakeClassifier(IntentLabel.MEDICAL_FACT), router,
                         _FakeAnsweringModel(), memory, session_state=store)
     asyncio.run(orch.handle("s1", "gerçek kullanıcı mesajı"))
     assert memory.get("s1")[0] == Message(role="user", content="gerçek kullanıcı mesajı")
@@ -963,7 +963,7 @@ def test_comparison_pinned_session_resolves_and_clears_pin_via_cheap_path():
                                    metadata={"key": "weight", "product_code": "PN1036",
                                              "status": "present", "raw_text": "3 kg"})],
     })
-    classifier = _FakeClassifier(IntentLabel.PRODUCT_FACT)  # must not fire
+    classifier = _FakeClassifier(IntentLabel.MEDICAL_FACT)  # must not fire
     model = _FakeAnsweringModel()
     store = SessionStateStore()
     store.set("s1", SessionState(
@@ -981,7 +981,7 @@ def test_comparison_pinned_session_resolves_and_clears_pin_via_cheap_path():
 
 def test_comparison_pinned_session_stays_pinned_while_still_ambiguous():
     router = _comparison_router({})
-    classifier = _FakeClassifier(IntentLabel.PRODUCT_FACT)
+    classifier = _FakeClassifier(IntentLabel.MEDICAL_FACT)
     model = _FakeAnsweringModel()
     store = SessionStateStore()
     store.set("s1", SessionState(
@@ -1005,7 +1005,7 @@ def test_comparison_pinned_session_drops_pin_on_irrelevant_message():
     # pin (old behavior: "True until proven otherwise", the pin held forever).
     # The escape hatch kicks in; the user doesn't get stuck.
     router = _comparison_router({})
-    classifier = _FakeClassifier(IntentLabel.PRODUCT_FACT)
+    classifier = _FakeClassifier(IntentLabel.MEDICAL_FACT)
     model = _FakeAnsweringModel()
     store = SessionStateStore()
     store.set("s1", SessionState(
@@ -1111,7 +1111,7 @@ def test_recommendation_run_sets_suggested_handoff_on_session_state():
     source = _FakeHandoffSourceFlow(["PN1015", "PN1036"])
     target = _FakeHandoffTargetFlow()
     router = _handoff_router(source, target)
-    classifier = _FakeClassifier(IntentLabel.PRODUCT_FACT)  # any label; should just fall to default_topn
+    classifier = _FakeClassifier(IntentLabel.MEDICAL_FACT)  # any label; should just fall to default_topn
     model = _FakeAnsweringModel()
     store = SessionStateStore()
     orch = Orchestrator(classifier, router, model, ConversationMemory(), session_state=store)
@@ -1128,7 +1128,7 @@ def test_user_accepts_handoff_routes_directly_to_target_flow_with_candidates():
     source = _FakeHandoffSourceFlow(["PN1015", "PN1036"])
     target = _FakeHandoffTargetFlow()
     router = _handoff_router(source, target)
-    classifier = _FakeClassifier(IntentLabel.PRODUCT_FACT)
+    classifier = _FakeClassifier(IntentLabel.MEDICAL_FACT)
     model = _FakeAnsweringModel()
     store = SessionStateStore()
     store.set("s1", SessionState(
@@ -1193,7 +1193,7 @@ def test_handoff_accept_delegates_to_continuation_checker_when_injected():
     source = _FakeHandoffSourceFlow(["PN1015", "PN1036"])
     target = _FakeHandoffTargetFlow()
     router = _handoff_router(source, target)
-    classifier = _FakeClassifier(IntentLabel.PRODUCT_FACT)
+    classifier = _FakeClassifier(IntentLabel.MEDICAL_FACT)
     model = _FakeAnsweringModel()
     store = SessionStateStore()
     store.set("s1", SessionState(
@@ -1291,7 +1291,7 @@ def test_preamble_verilmezse_hic_yayinlanmaz():
     flow = _FakeFlow()
     router = Router({"default_topn": flow}, Routing(default_flow="default_topn", intents={}))
     orch = Orchestrator(
-        classifier=_FakeClassifier(IntentLabel.PRODUCT_FACT), router=router,
+        classifier=_FakeClassifier(IntentLabel.MEDICAL_FACT), router=router,
         answering_model=_FakeAnsweringModel(), memory=ConversationMemory(),
     )
     seen, on_trace = _collector()
@@ -1305,7 +1305,7 @@ def test_preamble_tam_pipelinede_jenerik_veya_urun_kodu_havuzundan_basar():
     flow = _FakeFlow()
     router = Router({"default_topn": flow}, Routing(default_flow="default_topn", intents={}))
     orch = Orchestrator(
-        classifier=_FakeClassifier(IntentLabel.PRODUCT_FACT), router=router,
+        classifier=_FakeClassifier(IntentLabel.MEDICAL_FACT), router=router,
         answering_model=_FakeAnsweringModel(), memory=ConversationMemory(),
         preamble=_settings(),
     )
@@ -1330,7 +1330,7 @@ def test_preamble_metni_konusma_hafizasina_GIRMEZ():
     router = Router({"default_topn": flow}, Routing(default_flow="default_topn", intents={}))
     memory = ConversationMemory()
     orch = Orchestrator(
-        classifier=_FakeClassifier(IntentLabel.PRODUCT_FACT), router=router,
+        classifier=_FakeClassifier(IntentLabel.MEDICAL_FACT), router=router,
         answering_model=_FakeAnsweringModel(), memory=memory, preamble=_settings(),
     )
     seen, on_trace = _collector()
@@ -1349,7 +1349,7 @@ def test_preamble_pinli_yavas_flowda_o_flowun_havuzundan_basar():
     store = SessionStateStore()
     store.set("s1", SessionState(pinned=PinnedFlow(flow="comparison", intent="comparison")))
     orch = Orchestrator(
-        classifier=_FakeClassifier(IntentLabel.PRODUCT_FACT), router=router,
+        classifier=_FakeClassifier(IntentLabel.MEDICAL_FACT), router=router,
         answering_model=_FakeAnsweringModel(), memory=ConversationMemory(),
         session_state=store, preamble=_settings(),
     )
@@ -1372,7 +1372,7 @@ def test_preamble_pinli_hizli_flowda_hic_basilmaz():
     store = SessionStateStore()
     store.set("s1", SessionState(pinned=PinnedFlow(flow="doc_download", intent="doc_download")))
     orch = Orchestrator(
-        classifier=_FakeClassifier(IntentLabel.PRODUCT_FACT), router=router,
+        classifier=_FakeClassifier(IntentLabel.MEDICAL_FACT), router=router,
         answering_model=_FakeAnsweringModel(), memory=ConversationMemory(),
         session_state=store, preamble=_settings(),
     )
@@ -1392,7 +1392,7 @@ def test_preamble_pin_kirilirsa_SUSAR():
     store = SessionStateStore()
     store.set("s1", SessionState(pinned=PinnedFlow(flow="comparison", intent="comparison")))
     orch = Orchestrator(
-        classifier=_FakeClassifier(IntentLabel.PRODUCT_FACT), router=router,
+        classifier=_FakeClassifier(IntentLabel.MEDICAL_FACT), router=router,
         answering_model=_FakeAnsweringModel(), memory=ConversationMemory(),
         session_state=store, preamble=_settings(),
     )
@@ -1433,7 +1433,7 @@ def test_preamble_handoff_yolunda_hedef_flowun_havuzundan_basar():
         suggested_next_flow="comparison", suggested_next_candidates=["DE1", "DE2"],
     ))
     orch = Orchestrator(
-        classifier=_FakeClassifier(IntentLabel.PRODUCT_FACT), router=router,
+        classifier=_FakeClassifier(IntentLabel.MEDICAL_FACT), router=router,
         answering_model=_FakeAnsweringModel(), memory=ConversationMemory(),
         session_state=store, preamble=_settings(),
     )

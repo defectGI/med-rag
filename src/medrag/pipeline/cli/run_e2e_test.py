@@ -145,7 +145,7 @@ from medrag.pipeline.parser import (
 )
 
 # (unlike the to_markdown.py subprocess run_stage() launches), so a bar here
-# actually renders; see urun/pipeline/parser/progress.py.
+# actually renders; see medrag/pipeline/parser/progress.py.
 
 OLLAMA_ROOT = "http://localhost:11434"
 # Read from cfg_e2e_local.env at runtime (below) so the model set is defined

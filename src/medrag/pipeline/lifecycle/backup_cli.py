@@ -1,15 +1,16 @@
-"""med-rag gecelik yedeği (E3/K17): `python -m medrag.pipeline.lifecycle.backup`.
+"""med-rag nightly backup (E3/K17): `python -m medrag.pipeline.lifecycle.backup`.
 
-İki katman:
-  1. `nightly_backup.run_backup` -- registry + all_chunks + parse çıktısı +
-     Qdrant snapshot'ı (mevcut altyapı, yeniden yazılmaz).
-  2. med-rag eki -- KAYNAK korpus (`BELGELER/`: belgeler + notlar) ve durum
-     dosyaları (`durum/`). Kaynak dosyalar yedeğin can damarıdır: türevler
-     yeniden üretilebilir ama kaynak 500+ belge yeniden taranamaz.
+Two layers:
+  1. `nightly_backup.run_backup` -- registry + all_chunks + parse output +
+     Qdrant snapshot (existing infra, not rewritten).
+  2. med-rag addition -- the SOURCE corpus (`BELGELER/`: documents + notes) and
+     status files (`durum/`). Source files are the lifeblood of the backup:
+     derivatives can be re-produced but the source 500+ documents cannot be
+     re-scanned.
 
-Kullanım: Coolify scheduled task / cron:
+Usage: Coolify scheduled task / cron:
     python -m medrag.pipeline.lifecycle.backup
-Yedek kökü: `NIGHTLY_BACKUP_ROOT` (varsayılan `<repo>/nightly_backups`).
+Backup root: `NIGHTLY_BACKUP_ROOT` (default `<repo>/nightly_backups`).
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ def main() -> int:
     )
     logger.info("altyapı yedeği: %s", manifest.as_dict())
 
-    # med-rag eki: kaynak korpus + notlar + durum
+    # med-rag addition: source corpus + notes + status
     backup_root = nightly_backup._backup_root(os.environ.get("NIGHTLY_BACKUP_ROOT"))
     hedef = backup_root / nightly_backup._timestamp()
     belgeler = belgeler_dir()

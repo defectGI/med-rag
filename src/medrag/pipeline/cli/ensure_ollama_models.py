@@ -120,7 +120,7 @@ def _get_json(url: str, timeout: float = 5.0) -> dict:
 def server_version(root: str) -> str | None:
     try:
         return _get_json(f"{root}/api/version").get("version")
-    except Exception:  # noqa: BLE001 -- canlılık yoklaması: her hata "sunucu ayakta değil" demek, çağıran ensure_server_running durumu ekrana basar
+    except Exception:  # noqa: BLE001 -- liveness probe: any error means "server not up"; the caller ensure_server_running prints the state
         return None
 
 
@@ -174,7 +174,7 @@ def _norm(name: str) -> str:
 def model_present(root: str, model: str) -> bool:
     try:
         tags = _get_json(f"{root}/api/tags").get("models", [])
-    except Exception:  # noqa: BLE001 -- /api/tags okunamadı -> "model yok" varsay; çağıran zaten pull'a gidip sonucu basar
+    except Exception:  # noqa: BLE001 -- /api/tags unreadable -> assume "model absent"; the caller already goes to pull and prints the result
         return False
     names = {m.get("name") for m in tags}
     return model in names or _norm(model) in names

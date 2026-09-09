@@ -1,76 +1,74 @@
-"""N-05 (I-40): `medrag-nightly`nin EN BASI -- hicbir yazma, bu modulun basarili
-bir yedegi olmadan baslamaz.
+"""N-05 (I-40): the VERY BEGINNING of `medrag-nightly` -- no writes, this module
+does not start without a successful backup.
 
-K-63 baglantisi: gece kosusu elle duzeltilmis veriyi EZER (KARAR-KAYDI).
-Bunun tek korumasi bu yedek -- yani `run_backup()` burada BASARISIZ olursa
-`run_nightly.main()` HICBIR `stage_*`'i cagirmamali, gece *basarisiz*
-raporlanmali (N-08/N-10'un IntegritySection'ina `backup_completed=False`
-olarak dusuyor -- bkz. nightly_report.py'deki TODO notu).
+K-63 connection: the nightly run OVERWRITES manually-corrected data (KARAR-KAYDI).
+The only protection is this backup -- so if `run_backup()` FAILS here,
+`run_nightly.main()` must NOT call any `stage_*`, and the night must be reported
+as *failed* (falls into N-08/N-10's IntegritySection as `backup_completed=False`
+-- see the TODO note in nightly_report.py).
 
-Yedeklenen kalemler (task metninin listesi, I-42 ile ayni):
-  1. `specs.db`      -- sqlite3'un CANLI baglanti uzerinden calisan
-                        `.backup()` API'siyle (WAL modunda calisan bir DB'yi
-                        duz `shutil.copy`/dosya kopyasiyla almak commit
-                        edilmemis sayfalari (specs.db-wal) gormeyip BOZUK bir
-                        .db uretebilir -- `sqlite3.Connection.backup()` canli
-                        baglantidan sayfa sayfa okur, tutarli bir goruntu
-                        garantiler).
+Backed-up items (the task text's list, same as I-42):
+  1. `specs.db`      -- via sqlite3's `.backup()` API running on a LIVE
+                        connection (taking a DB running in WAL mode with a plain
+                        `shutil.copy`/file copy would miss the uncommitted pages
+                        (specs.db-wal) and could produce a CORRUPT .db --
+                        `sqlite3.Connection.backup()` reads page by page from the
+                        live connection, guaranteeing a consistent image).
   2. `document_nodes.json`
   3. `all_chunks.json`
-  4. parse cikti dizini (PARSED_OUTPUT_DIR, tum agac -- `shutil.copytree`)
-  5. Qdrant koleksiyonu -- snapshot API'siyle (K-63/I-42): BU MAKINEDE Qdrant
-     CALISMIYOR (repo-genel kural, bkz. AGENTS.md/CLAUDE.md), bu yuzden bu
-     adim GERCEK bir sunucuya bagli TEST EDILMEDI -- yalniz fonksiyon olarak
-     yazildi (`backup_qdrant_snapshot`, istemci disaridan enjekte edilebilir,
-     `qdrant_store.py`'nin ayni DI desenini aynalar). Gercek dogrulama
-     Qdrant'in fiilen calistigi makinede yapilmali (bilinen sinir).
-     `QDRANT_URL` tanimsizsa (ya da baglanti/snapshot cagrisi patlarsa) bu
-     KALEM yedegi BASARISIZ SAYMAZ -- `skipped=True` ile not dusulur, cunku
-     task metni acikca "varsa" diyor (Qdrant'in bu ortamda hic bulunmayan bir
-     bagimlilik olabilecegini kabul ediyor); digerleri (1-4) ise ZORUNLU --
-     biri bile eksik/basarisizsa `BackupError` firlatilir.
+  4. the parse output dir (PARSED_OUTPUT_DIR, the whole tree -- `shutil.copytree`)
+  5. the Qdrant collection -- via the snapshot API (K-63/I-42): Qdrant does NOT
+     RUN on THIS MACHINE (repo-wide rule, see AGENTS.md/CLAUDE.md), so this step
+     was TESTED against a real server -- it was only written as a function
+     (`backup_qdrant_snapshot`, the client is injectable from outside, mirroring
+     `qdrant_store.py`'s same DI pattern). Real validation must happen on a
+     machine where Qdrant actually runs (known limitation). If `QDRANT_URL` is
+     undefined (or the connection/snapshot call dies) this ITEM is NOT counted
+     as a backup FAILURE -- it is noted with `skipped=True`, because the task
+     text says "if there is one" (accepting that Qdrant may be an absent
+     dependency in this environment); the others (1-4) are MANDATORY -- if any
+     one is missing/fails, `BackupError` is raised.
 
-Hedef dizin (N-13/N-15 config/default.toml'a paralel yazdigi icin CAKISMA
-riskini azaltmak amaciyla BILINCLI olarak TOML'a EKLENMEDI -- task metninin
-acik tercihi): sabit `DEFAULT_BACKUP_ROOT`, `NIGHTLY_BACKUP_ROOT` env
-degiskeniyle (testler ve dagitim ortami icin) override edilebilir -- ayni
-desen `nightly_lock.py`nin `NIGHTLY_LOCK_PATH`i ile.
+Target dir (deliberately NOT added to TOML to reduce the COLLISION risk of
+writing parallel to N-13/N-15 config/default.toml -- the task text's explicit
+preference): fixed `DEFAULT_BACKUP_ROOT`, overridable via the `NIGHTLY_BACKUP_ROOT`
+env var (for tests and the deployment environment) -- same pattern as
+`nightly_lock.py`'s `NIGHTLY_LOCK_PATH`.
 
-N-25: otomatik geri yukleme (restore). Onceki tasarim yalniz yedek ALIYORDU
--- bir asama yarida patlarsa ya da surec `kill -9`/cokme ile YOK OLURSA,
-o ana kadar yazilmis (kismi/bozuk) veri diskte KALIYORDU, geri yukleme elle
-yapiliyordu. Iki senaryo icin otomatik onarim eklendi:
+N-25: automatic restore. The previous design only took backups -- if a stage
+crashed halfway or the process DIED via `kill -9`/crash, the data written so far
+(partial/corrupt) STAYED on disk and restore was manual. Automatic repair was
+added for two scenarios:
 
-  1. Tam zincir icinde bir asama YARIDA PATLARSA (surec HALA hayatta,
-     exception yakalanabiliyor): `run_nightly._run_full_chain_with_report`
-     `restore_backup()`u bu kosunun kendi yedegine (`backup_manifest.root`)
-     cagirir, boylece o kosunun yazdigi HER SEY (basarili biten asamalar
-     dahil) kosu ONCESI duruma doner -- "yarim ama kismen ilerlemis" bir
-     durumda BIRAKMAMAK icin BUTUN kosu geri alinir, tek tek asama bazinda
-     KISMI geri alma YAPILMAZ (basit ve ongorulebilir tutmak icin).
-  2. Surec `kill -9`/guc kesintisi gibi bir sebeple YOK OLURSA (hicbir
-     except/finally calismaz): `mark_in_progress()`/`clear_in_progress()`
-     ile bir "devam ediyor" isaretcisi tutulur (bkz. asagi). Bir sonraki
-     `medrag-nightly` cagrisi, YENI bir yedek almadan ONCE bu isaretciyi
-     kontrol eder; isaretci hala varsa (onceki kosu TEMIZ cikmamis demektir)
-     o kosunun yedegine geri doner, SONRA kendi isini yapmaya baslar.
+  1. If a stage CRASHES MIDWAY in the full chain (process still alive, the
+     exception can be caught): `run_nightly._run_full_chain_with_report` calls
+     `restore_backup()` on this run's own backup (`backup_manifest.root`), so
+     EVERYTHING this run wrote (including successfully finished stages) returns
+     to the pre-run state -- to not leave it in a "halfway but partially
+     progressed" state the WHOLE run is rolled back; per-stage PARTIAL rollback
+     is NOT done (to keep it simple and predictable).
+  2. If the process DIES for a reason like `kill -9`/power loss (no
+     except/finally runs): a "in progress" marker is kept via
+     `mark_in_progress()`/`clear_in_progress()` (see below). The next
+     `medrag-nightly` call checks this marker BEFORE taking a NEW backup; if the
+     marker is still there (previous run did not exit cleanly) it returns to that
+     run's backup, THEN starts its own work.
 
-K-63 ile CAKISMAMASI icin BILINCLI sinir: bu otonom geri alma YALNIZ
-`medrag-nightly`nin KENDI yazdigi veriyi (bu kosunun/onceki yarim kosunun
-yedegini) geri aliyor -- kullanicinin ELLE yaptigi bir duzeltmeyi asla
-otomatik EZMEZ, cunku restore HER ZAMAN "bu kosu BASLAMADAN ONCEKI" bir
-yedege doner (kosudan ONCE alinan yedek), kosu SONRASI/disi bir zamana
-degil. `--stage`/`--from` (elle mudahale, K-60) yollarinda BASARISIZLIK
-otomatik restore TETIKLEMEZ (kapsam kasitli dar, bkz. `run_nightly.py`daki
-`_run_full_chain_with_report` docstring'i) -- yalniz `kill -9` kurtarmasi
-(2. senaryo) bu yollari da kapsar, cunku o senaryo "surec zaten temiz
-cikamadi" durumu, elle mudahalenin SONUCUNU degil KESINTIYE UGRAMASINI ele
-alir.
+Deliberate limit to NOT collide with K-63: this automatic rollback ONLY restores
+what `medrag-nightly` itself wrote (this run's / the previous half-run's backup)
+-- it never automatically OVERWRITES a user's manual correction, because restore
+ALWAYS returns to a backup taken BEFORE this run started, not to a time after/
+outside the run. On the `--stage`/`--from` (manual intervention, K-60) paths a
+failure does NOT trigger an automatic restore (scope deliberately narrow, see
+`_run_full_chain_with_report`'s docstring in `run_nightly.py`) -- only the
+`kill -9` recovery (scenario 2) also covers those paths, because that scenario
+is "the process could not exit cleanly", handling an INTERRUPTION, not the
+outcome of a manual intervention.
 
-Qdrant KAPSAM DISI: backup'taki gibi (server-side snapshot, bu makinede
-Qdrant calismiyor) restore de qdrant kalemini ATLAR, sadece not duser --
-gercek geri yukleme Qdrant'in calistigi makinede snapshot API'siyle elle
-yapilmali (bilinen sinir, backup'taki AYNI kisitlama).
+Qdrant OUT OF SCOPE: like the backup (server-side snapshot, no Qdrant on this
+machine) the restore SKIPS the qdrant item, only noting it -- real restore must
+be done manually via the snapshot API on the machine where Qdrant runs (known
+limitation, the SAME restriction as the backup).
 """
 
 from __future__ import annotations
@@ -87,31 +85,31 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-# src/medrag/pipeline/cli/nightly_backup.py -> repo koku (4 seviye yukari,
-# run_nightly.py'nin _REPO_ROOT'uyla AYNI konvansiyon).
+# src/medrag/pipeline/cli/nightly_backup.py -> repo root (4 levels up, the SAME
+# convention as run_nightly.py's _REPO_ROOT).
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 
 NIGHTLY_BACKUP_ROOT_ENV = "NIGHTLY_BACKUP_ROOT"
 DEFAULT_BACKUP_ROOT = _REPO_ROOT / "nightly_backups"
 
-# N-25: "devam ediyor" isaretcisi -- ayni env-override deseni
-# `nightly_lock.py`nin `NIGHTLY_LOCK_PATH`iyla (testler ve dagitim ortami
-# icin), sabit varsayilan sistem gecici dizininde.
+# N-25: the "in progress" marker -- the same env-override pattern as
+# `nightly_lock.py`'s `NIGHTLY_LOCK_PATH` (for tests and the deployment
+# environment); fixed default in the system temp dir.
 NIGHTLY_INPROGRESS_PATH_ENV = "NIGHTLY_INPROGRESS_PATH"
 DEFAULT_INPROGRESS_PATH = Path(tempfile.gettempdir()) / "medrag-nightly-inprogress.json"
 
 
 class BackupError(RuntimeError):
-    """Yedeklemenin ZORUNLU kalemlerinden biri basarisiz oldu -- coagiran
-    (`run_nightly.main`) bu istisnayi yakalayip HICBIR `stage_*`'i
-    cagirmamali, gece *basarisiz* raporlanmali (N-05 kurali)."""
+    """One of the MANDATORY backup items failed -- the caller (`run_nightly.main`)
+    must catch this and NOT call any `stage_*`; the night must be reported as
+    *failed* (N-05 rule)."""
 
 
 class RestoreError(RuntimeError):
-    """Geri yuklemenin ZORUNLU kalemlerinden biri basarisiz oldu (N-25).
-    Bu, backup HATASINDAN daha ciddi bir durum -- veri artik ne kosu-oncesi
-    ne de kosu-sonrasi TUTARLI bir halde olabilir, coagiran bunu YUTMAMALI,
-    yuksek sesle (traceback ile) durmali ki elle mudahale edilsin."""
+    """One of the MANDATORY restore items failed (N-25). This is a MORE serious
+    situation than a backup FAILURE -- the data may now be in neither a pre-run
+    nor a post-run CONSISTENT state; the caller must NOT swallow it, must stop
+    loudly (with a traceback) so manual intervention can happen."""
 
 
 @dataclass
@@ -165,7 +163,7 @@ def _timestamp() -> str:
 
 
 def _backup_sqlite(src: Path, dest: Path) -> int:
-    """bkz. modul docstring'i -- WAL-guvenli SQLite yedegi."""
+    """see the module docstring -- a WAL-safe SQLite backup."""
     if not src.is_file():
         raise BackupError(f"specs.db bulunamadi: {src}")
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -198,13 +196,13 @@ def _backup_dir(src: Path, dest: Path) -> int:
 
 
 def _restore_sqlite(backup_src: Path, live_dest: Path) -> None:
-    """`_backup_sqlite`in TERSI. Yedek dosyasi zaten `.backup()` API'siyle
-    alinmis TUTARLI/duz bir sqlite dosyasi (WAL yok) -- yine de canli hedefte
-    bir onceki kosudan kalma `-wal`/`-shm` yan dosyalari olabilir, bunlar
-    SILINIR (yoksa yeni yazilan ana dosyayla ESKI wal/shm UYUSMAZ, tutarsiz
-    bir goruntu okunabilir); sonra AYNI `.backup()` deseni TERS yonde
-    kullanilir (duz dosya kopyasi degil -- N-25'in de N-05'le AYNI WAL-guvenli
-    garantiyi tasimasi icin)."""
+    """The INVERSE of `_backup_sqlite`. The backup file is already a
+    CONSISTENT/plain sqlite file taken via the `.backup()` API (no WAL) -- but the
+    live target may still have leftover `-wal`/`-shm` side files from a previous
+    run; these are DELETED (otherwise an old wal/shm won't MATCH the newly written
+    main file and an inconsistent image can be read); then the SAME `.backup()`
+    pattern is used in the REVERSE direction (not a plain file copy -- so N-25
+    carries the SAME WAL-safe guarantee as N-05)."""
     if not backup_src.is_file():
         raise RestoreError(f"yedekte specs.db bulunamadi: {backup_src}")
     live_dest.parent.mkdir(parents=True, exist_ok=True)
@@ -239,19 +237,18 @@ def _restore_dir(backup_src: Path, live_dest: Path) -> None:
 
 
 def restore_backup(root: Path | str) -> list[BackupEntry]:
-    """N-25: `root` altindaki bir yedegi (manifest.json'daki her kalemin
-    `destination`i) ilgili `source` (canli) konumuna GERI YAZAR -- `run_backup`
-    ile TAM TERS yonde, ayni manifest.json'u okuyarak (kalemleri ELDE
-    UYDURMAK yerine gercekten yedeklenmis olani temel alir).
+    """N-25: writes a backup under `root` (each item's `destination` in
+    manifest.json) BACK to its `source` (live) location -- exactly the REVERSE
+    direction of `run_backup`, reading the same manifest.json (basing it on what
+    was actually backed up rather than INVENTING items).
 
-    `qdrant` kalemi HER ZAMAN atlanir (bkz. modul docstring'i -- server-side
-    snapshot, bu makineden geri yuklenemez). ZORUNLU kalemlerden (specs.db/
-    document_nodes.json/all_chunks.json/parsed_output_dir) biri manifest'te
-    `skipped=True` isaretliyse (backup sirasinda zaten basarisiz olmus
-    olmali normalde -- ama boyle bir yedek BackupError firlatip diskte
-    kalmamis olmaliydi) ya da geri yukleme sirasinda patlarsa, `RestoreError`
-    firlatilir: coagiran bunu YUTMAMALI, veri artik BELIRSIZ bir halde
-    olabilir."""
+    The `qdrant` item is ALWAYS skipped (see the module docstring -- server-side
+    snapshot, cannot be restored from this machine). If one of the MANDATORY items
+    (specs.db/document_nodes.json/all_chunks.json/parsed_output_dir) is marked
+    `skipped=True` in the manifest (normally it should have failed during backup
+    -- but such a backup should not have remained on disk after raising
+    BackupError), or if it fails during restore, `RestoreError` is raised: the
+    caller must NOT swallow it, the data may now be in an UNDEFINED state."""
     root = Path(root)
     manifest_path = root / "manifest.json"
     try:
@@ -292,12 +289,13 @@ def _inprogress_path(path: Path | str | None) -> Path:
 
 
 def mark_in_progress(backup_root: Path | str, *, path: Path | str | None = None) -> None:
-    """N-25: bir kosu, kendi yedegini alip `stage_*`lari cagirmaya BASLAMADAN
-    HEMEN ONCE bunu yazar. Surec temiz cikarsa (basarili YA DA yakalanmis bir
-    hatayla, ikisinde de `_run_full_chain_with_report`/`main()` `finally`
-    icinde `clear_in_progress()` cagirir) bu dosya SILINIR. `kill -9`/cokme
-    gibi TEMIZ CIKMAYAN bir kosu bu dosyayi diskte BIRAKIR -- bir sonraki
-    cagri bunu 'onceki kosu yarida kaldi, o yedege don' sinyali olarak okur."""
+    """N-25: a run writes this RIGHT BEFORE it takes its own backup and starts
+    calling the `stage_*`s. If the process exits cleanly (successfully OR with a
+    caught error -- both call `clear_in_progress()` inside the `finally` of
+    `_run_full_chain_with_report`/`main()`) this file is DELETED. A run that does
+    NOT exit cleanly (like `kill -9`/crash) leaves this file on disk -- the next
+    call reads it as the 'previous run was left halfway, return to that backup'
+    signal."""
     p = _inprogress_path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps({"backup_root": str(backup_root)}), encoding="utf-8")
@@ -320,12 +318,12 @@ def backup_qdrant_snapshot(
     *, dest_dir: Path, collection: str, url: str | None, api_key: str | None,
     client_factory: Callable[[str, str | None], Any] | None = None,
 ) -> BackupEntry:
-    """Qdrant koleksiyonunun snapshot API'siyle yedegi (I-42). `client_factory`
-    testler icin enjekte edilebilir (`qdrant_store.py`nin `from_env`
-    classmethod'uyla ayni DI deseni) -- verilmezse gercek `QdrantClient`
-    kurulur. HICBIR durumda `BackupError` FIRLATMAZ: url tanimsiz ya da
-    baglanti/snapshot cagrisi patlarsa `skipped=True` ile dondurur (task
-    metni acikca 'varsa' diyor -- bu tek istisnai/opsiyonel kalem)."""
+    """Backup of the Qdrant collection via the snapshot API (I-42). `client_factory`
+    is injectable for tests (the same DI pattern as `qdrant_store.py`'s `from_env`
+    classmethod) -- if not given, the real `QdrantClient` is constructed. In NO
+    case does it RAISE `BackupError`: if the url is undefined or the
+    connection/snapshot call dies it returns with `skipped=True` (the task text
+    says "if there is one" -- this single exceptional/optional item)."""
     if not url:
         return BackupEntry(name="qdrant", source=collection, destination=str(dest_dir),
                             skipped=True, note="QDRANT_URL tanimsiz")
@@ -352,11 +350,11 @@ def run_backup(
     qdrant_collection: str | None = None,
     qdrant_client_factory: Callable[[str, str | None], Any] | None = None,
 ) -> BackupManifest:
-    """`run_nightly.main()`in ILK adimi (N-05). Herhangi bir ZORUNLU kalem
-    (specs.db/document_nodes.json/all_chunks.json/parse cikti dizini)
-    basarisiz olursa `BackupError` firlatir; yarim kalan hedef dizin
-    TEMIZLENIR (basarisiz/eksik bir yedek gecerliymis gibi diskte kalmasin
-    diye) -- coagiran bunu yakalayip HICBIR asamayi calistirmamali."""
+    """The FIRST step of `run_nightly.main()` (N-05). If any MANDATORY item
+    (specs.db/document_nodes.json/all_chunks.json/parse output dir) fails it
+    raises `BackupError`; the half-done target dir is CLEANED UP (so a
+    failed/incomplete backup does not remain on disk as if it were valid) -- the
+    caller must catch it and run NO stage."""
     from medrag.pipeline.cli import run_parse_pipeline
     from medrag.pipeline.facts import discover
 
@@ -412,5 +410,5 @@ def run_backup(
             json.dumps(manifest.as_dict(), ensure_ascii=False, indent=2),
             encoding="utf-8")
     except OSError:
-        pass  # manifest yazimi basarisiz olsa bile yedegin KENDISI zaten tamam
+        pass  # even if the manifest write fails, the backup ITSELF is already done
     return manifest

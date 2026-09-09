@@ -18,7 +18,7 @@ model call. The limit value is read from `[pipeline] ollama_max_concurrent`
 
 Wiring note (the same pattern as the surrounding config constants -- the
 constant lives here, wiring it into the real call sites
-(`urun/pipeline/parser/llm/openai_compat.py`, the facts-side LLM calls) is a
+(`medrag/pipeline/parser/llm/openai_compat.py`, the facts-side LLM calls) is a
 separate integration step and was left out of this scope; the facts side is
 already blocked at import time for its own unrelated reasons). Example usage:
 

@@ -228,13 +228,14 @@ def test_build_router_from_env_uses_flows(monkeypatch, tmp_path):
 
     from medrag.api.retrieval.core import IntentLabel
 
-    assert isinstance(router.flow_for(IntentLabel.PRODUCT_FACT), SqlTopNFlow)
-    assert isinstance(router.flow_for(IntentLabel.AGGREGATION), AggregationFlow)
-    assert isinstance(router.flow_for(IntentLabel.DOC_QUESTION), DefaultTopNFlow)
+    # med-rag tıbbi routing: out_of_scope dışında her intent tek vektör yoluna
+    # (default_topn) düşer.
+    assert isinstance(router.flow_for(IntentLabel.MEDICAL_FACT), DefaultTopNFlow)
+    assert isinstance(router.flow_for(IntentLabel.CLINICAL_DECISION), DefaultTopNFlow)
+    assert isinstance(router.flow_for(IntentLabel.COMPARISON), DefaultTopNFlow)
+    assert isinstance(router.flow_for(IntentLabel.INTERACTION), DefaultTopNFlow)
+    assert isinstance(router.flow_for(IntentLabel.LIBRARY), DefaultTopNFlow)
     assert isinstance(router.flow_for(IntentLabel.OUT_OF_SCOPE), NoRetrievalFlow)
-    # doc_download routes to its own flow in config/default.toml [routing] --
-    # NO LONGER to sql_topn.
-    assert isinstance(router.flow_for(IntentLabel.DOC_DOWNLOAD), DocDownloadFlow)
 
 
 # --- GPU gate: the SQL retriever is serialized --------------------------------
@@ -282,7 +283,7 @@ def test_reconciler_gets_intent_labels_when_fuse_on(monkeypatch):
     assert cfg.session.fuse_intent is True  # enabled by default
     rec = factory.build_reconciler_from_env(cfg)
     assert rec is not None
-    assert rec._intent_labels is not None and len(rec._intent_labels) >= 9
+    assert rec._intent_labels is not None and len(rec._intent_labels) >= 6
 
 
 def test_reconciler_no_labels_when_fuse_off(monkeypatch, tmp_path):

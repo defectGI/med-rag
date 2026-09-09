@@ -1,131 +1,136 @@
-# core/config — çapraz-bileşen (cross-cutting) tuning iskeleti (D-51).
+# core/config — cross-cutting tuning skeleton (D-51).
 #
-# NE DEĞİL: bu dosya `parser/config/default.toml`, `chunker/config/default.toml`,
-# `vectorize/config/default.toml`, `api/config/default.toml`'ın YERİNE GEÇMEZ ve
-# onları BİRLEŞTİRMEZ. CONFIG.md'nin "her bileşen kendi config/default.toml'unu
-# taşır, paylaşılan config paketi yok" kuralı hâlâ geçerli — bileşenler bilinçli
-# olarak birbirini import etmiyor, tek bir dev TOML bu izolasyonu bozardı.
+# WHAT IT IS NOT: this file does NOT REPLACE `parser/config/default.toml`,
+# `chunker/config/default.toml`, `vectorize/config/default.toml`,
+# `api/config/default.toml`, and does NOT MERGE them. CONFIG.md's rule
+# "each component carries its own config/default.toml; there is no shared
+# config package" still holds — components deliberately do not import each
+# other, and a single dev TOML would break that isolation.
 #
-# NE: `ANALYSIS.md` §2.5'in bulduğu, HİÇBİR bileşenin kendi config/default.toml'unda
-# evi olmayan ayarlar — ya çıplak `os.getenv(...)` fallback'i ya da kod içi
-# literal. D-56 ("tek okuma noktası: os.getenv yalnızca core/config/ içinde")
-# öncesi bunları TEK yerde görünür/tartışılabilir kılmak için yazıldı.
+# WHAT IT IS: the settings that `ANALYSIS.md` §2.5 found have NO home in any
+# component's own config/default.toml — either a bare `os.getenv(...)`
+# fallback or an in-code literal. Before D-56 ("single read point: os.getenv
+# only inside core/config/") it was written to make these visible/discussable
+# in ONE place.
 #
-# Bu tur (D-51) yalnız İSKELET: değerler bugünkü kod-içi/env fallback'lerin
-# birebir kopyası, kod bu dosyayı henüz OKUMUYOR (loader D-52/D-56'nın işi).
-# Amaç kaybolmuş ayar envanterini tek yere toplamak, davranışı değiştirmek değil.
+# This round (D-51) is only the SKELETON: the values are a verbatim copy of
+# today's in-code/env fallbacks; the code does NOT READ this file yet (that is
+# the loader D-52/D-56's job). The aim is to gather the lost-setting inventory
+# in one place, not to change behavior.
 #
-# BİLİNÇLİ MUAF: `parser/parsers/pdf_parser.py` ve kardeşlerindeki geometri/eşik
-# sabitleri (K-56/D-57 kararı, bu turda dokunulmuyor) — buraya alınmadı.
+# DELIBERATE EXEMPTION: the geometry/threshold constants in
+# `parser/parsers/pdf_parser.py` and its siblings (K-56/D-57 decision,
+# untouched this round) — not included here.
 
 [retrieval]
-# `src/medrag/api/retrieval/` bugün HİÇ TOML yükleyicisi taşımıyor — her modül
-# kendi `os.getenv(...)` fallback'ini satırında tutuyor (CONFIG.md'nin
-# "retrieval'ın hiç TOML yükleyicisi yok" notuyla tutarlı, ANALYSIS.md §2.5).
-# Kaynak: modules/intent_classification/factory.py, modules/top_n/embedder.py.
+# `src/medrag/api/retrieval/` today carries NO TOML loader — each module keeps
+# its own `os.getenv(...)` fallback inline (consistent with CONFIG.md's
+# "retrieval has no TOML loader" note, ANALYSIS.md §2.5).
+# Source: modules/intent_classification/factory.py, modules/top_n/embedder.py.
 llm_timeout_seconds = 60
-# şimdi: intent_classification/factory.py:86 -> os.getenv("LLM_TIMEOUT", "60")
+# now: intent_classification/factory.py:86 -> os.getenv("LLM_TIMEOUT", "60")
 llm_max_retries = 2
-# şimdi: intent_classification/factory.py:87 -> os.getenv("LLM_MAX_RETRIES", "2")
+# now: intent_classification/factory.py:87 -> os.getenv("LLM_MAX_RETRIES", "2")
 embedder_timeout_seconds = 120.0
-# şimdi: modules/top_n/embedder.py:67 -> fonksiyon imzasında sabit varsayılan
-# (env'den DEĞİL, doğrudan Python default'u)
+# now: modules/top_n/embedder.py:67 -> constant default in the function
+# signature (NOT from env, directly a Python default)
 
 [chunking]
-# BİLİNÇLİ BOŞ. chunker'ın KENDİ config/default.toml'u zaten tam ve iyi
-# yönetiliyor ("bölme davranışını etkileyen hiçbir sayı kodda hardcode
-# edilmez" — chunker/config/default.toml'un kendi ilke yorumu). Tarama
-# sırasında chunker'a özgü, config/default.toml dışında kalmış bir sayı
-# BULUNAMADI. Bu bölüm D-56 sonrası "neden boş" sorusuna önceden cevap
-# vermek için duruyor — chunker core/'a taşınırsa yeni değer BURAYA değil
-# kendi dosyasına eklenir.
+# DELIBERATELY EMPTY. The chunker's OWN config/default.toml is already complete
+# and well managed ("no number affecting split behavior is hardcoded in code"
+# — the chunker/config/default.toml own principle comment). During the scan a
+# chunker-specific number outside config/default.toml was NOT FOUND. This
+# section exists to answer in advance the post-D-56 "why is it empty" question
+# — if the chunker moves into core/, the new value is added to ITS OWN file,
+# not HERE.
 
 [llm]
-# core/llm/ (D-31'de 7 klonun birleştiği ortak OpenAI-uyumlu istemci) bugün
-# tek bir hardcoded fallback taşıyor.
+# core/llm/ (the common OpenAI-compatible client, which 7 clones merged into in
+# D-31) today carries a single hardcoded fallback.
 ollama_base_url = "http://localhost:11434/v1"
-# şimdi: core/llm/providers.py:41 -> COMPAT_DEFAULT_URL["ollama"]
-# Not: model/provider/api_key/`*_BASE_URL` seçimi CONFIG.md'nin "bağlantı
-# kimliği" türü — `.env`de KALIR, buraya taşınmaz. Burada yalnızca paylaşılan
-# istemcinin kod-içi son-çare fallback'i var.
+# now: core/llm/providers.py:41 -> COMPAT_DEFAULT_URL["ollama"]
+# Note: the model/provider/api_key/`*_BASE_URL` choice is CONFIG.md's
+# "connection identity" type — it STAYS in `.env`, not moved here. Here there
+# is only the shared client's in-code last-resort fallback.
 
 [whatsapp]
-# `src/medrag/api/wa_bot.py` — D-10'da `WA_BOT_HOST` eklenirken bırakılan
-# `TODO(D-56): core/config'e taşınacak` yorumunun karşılığı. Üçü de bugün
-# env-only, TOML'a hiç bağlı değil.
+# `src/medrag/api/wa_bot.py` — the counterpart of the
+# `TODO(D-56): move to core/config` comment left when `WA_BOT_HOST` was added
+# in D-10. All three are env-only today, not bound to TOML at all.
 gateway_url = "http://127.0.0.1:8000"
-# şimdi: wa_bot.py:76 -> os.environ.get("GATEWAY_ADRES", "http://127.0.0.1:8000")
+# now: wa_bot.py:76 -> os.environ.get("GATEWAY_ADRES", "http://127.0.0.1:8000")
 host = "127.0.0.1"
-# şimdi: wa_bot.py:246 -> os.getenv("WA_BOT_HOST", "127.0.0.1")  (D-10)
+# now: wa_bot.py:246 -> os.getenv("WA_BOT_HOST", "127.0.0.1")  (D-10)
 port = 8003
-# şimdi: wa_bot.py:244 -> os.getenv("WA_BOT_PORT", "8003")
+# now: wa_bot.py:244 -> os.getenv("WA_BOT_PORT", "8003")
 gateway_timeout_seconds = 30
-# şimdi: wa_bot.py:86 -> urllib.request.urlopen(istek, timeout=30) — çıplak
-# literal, env fallback'i bile yok
+# now: wa_bot.py:86 -> urllib.request.urlopen(request, timeout=30) — bare
+# literal, not even an env fallback
 
 [logging]
-# `api/config/default.toml` (chatbot) KENDİ [logging] bloğunu zaten taşıyor
-# (level/text2sql_level/max_bytes/backup_count/console) — TEKRAR EDİLMEDİ.
-# Bu bölüm yalnız hâlâ `logging.basicConfig(...)` ile çıplak çalışan iki
-# pipeline CLI'sını kapsar; bunlar "davranış" tuning'i değil ama envanterde
-# görünür olsun diye buraya yazıldı.
+# `api/config/default.toml` (chatbot) already carries its OWN [logging] block
+# (level/text2sql_level/max_bytes/backup_count/console) — NOT REPEATED here.
+# This section covers only the two pipeline CLIs that still run on a bare
+# `logging.basicConfig(...)`; these are not "behavior" tuning but were written
+# here so they appear in the inventory.
 chunker_cli_level = "INFO"
-# şimdi: pipeline/chunker/cli.py:332 -> logging.basicConfig(level=logging.INFO, ...)
+# now: pipeline/chunker/cli.py:332 -> logging.basicConfig(level=logging.INFO, ...)
 vectorize_cli_level = "INFO"
-# şimdi: pipeline/vectorize/cli.py:240 -> logging.basicConfig(level=logging.INFO, ...)
+# now: pipeline/vectorize/cli.py:240 -> logging.basicConfig(level=logging.INFO, ...)
 vectorize_query_level = "WARNING"
-# şimdi: pipeline/vectorize/query.py:80 -> logging.basicConfig(level=logging.WARNING, ...)
+# now: pipeline/vectorize/query.py:80 -> logging.basicConfig(level=logging.WARNING, ...)
 
 [parser]
-# BİLİNÇLİ NEREDEYSE BOŞ. parser'ın KENDİ config/default.toml'u zaten var
-# (max_tokens vb., D-15 ile doğrulandı) — o değerler BURAYA taşınmadı.
-# Geometri/eşik sabitleri (pdf_parser.py ve kardeşleri) K-56/D-57 kararıyla
-# bu turda BİLİNÇLİ MUAF, buraya da alınmadı.
-# Tek somut bulgu: parser tarafının [llm] ile AYNI Ollama base URL'ini
-# ayrı dosyalarda kendi kopyasında tutması (duplikasyon, davranış farkı
-# değil) — gerçek birleştirme D-52/D-56'nın işi, burada yalnız iz düşülüyor.
-# şimdi: pipeline/parser/llm/openai_compat.py, pipeline/parser/llm/__init__.py
+# DELIBERATELY NEARLY EMPTY. The parser already has its OWN config/default.toml
+# (max_tokens etc., verified with D-15) — those values were NOT moved here.
+# The geometry/threshold constants (pdf_parser.py and siblings) are a DELIBERATE
+# EXEMPTION for this round under K-56/D-57, so not included here either.
+# The only concrete finding: the parser side keeps the SAME Ollama base URL as
+# [llm] in its own copy in separate files (a duplication, not a behavior
+# difference) — the real merge is D-52/D-56's job; here only a trace is left.
+# now: pipeline/parser/llm/openai_compat.py, pipeline/parser/llm/__init__.py
 
 [pipeline]
-# N-15: gece koşusu (parse + facts, en ağır Ollama tüketicileri) sürerken
-# servis cevap vermeye devam etmeli (I-05/I-29) -- Ollama paylaşımlı (K-10).
-# İki koruma: (a) pipeline worker'ın Docker/Coolify tarafında **1 replika**
-# ile çalıştığını burada SABİTLİYORUZ -- gerçek zorlama compose/Coolify
-# servis tanımında (bu makinede yok, N-14 ile birlikte Docker/GPU
-# makinesinde uygulanır), bu alan o kararın TEK kaynağı ve dokümantasyonu;
-# (b) `ollama_max_concurrent` -- `core/ollama_semaphore.py`nin okuduğu,
-# parse/facts'ın Ollama'ya AYNI ANDA gönderebileceği çağrı sayısı tavanı.
+# N-15: while the nightly run (parse + facts, the heaviest Ollama consumers) is
+# running, the service must keep answering (I-05/I-29) — Ollama is shared (K-10).
+# Two guards: (a) we FIX here that the pipeline worker runs as **1 replica** on
+# the Docker/Coolify side — the actual enforcement is in the compose/Coolify
+# service definition (not on this machine; applied with N-14 on the Docker/GPU
+# machine); this field is the SINGLE source and documentation of that decision;
+# (b) `ollama_max_concurrent` — the ceiling read by `core/ollama_semaphore.py`,
+# the max number of calls parse/facts may send to Ollama AT THE SAME TIME.
 worker_replicas = 1
-# şimdi: Docker/Coolify compose tanımı bu makinede YOK -- bu alan N-14 ile
-# birlikte servis makinesinde `replicas: 1` olarak uygulanacak TEK karar
-# kaynağı (kod: bkz. RUNBOOK.md notu, henüz repoda yok).
+# now: no Docker/Coolify compose definition on this machine — with N-14 this
+# field is the SINGLE decision source applied as `replicas: 1` on the service
+# machine (code: see the RUNBOOK.md note, not yet in the repo).
 ollama_max_concurrent = 2
-# şimdi: core/ollama_semaphore.py::get_ollama_semaphore() -- parser/facts'ın
-# Ollama çağrılarını (henüz kablolanmadı, bkz. modülün docstring'i) bu
-# semaforla sarması gereken tavan. Başlangıç değeri 2 (tahmini, K-10'un
-# "paylaşımlı" notuyla tutarlı muhafazakar bir başlangıç) -- gerçek 120 sn
-# eşiği GPU/servis makinesinde ölçülüp ayarlanmalı.
+# now: core/ollama_semaphore.py::get_ollama_semaphore() -- the ceiling that
+# parser/facts should wrap their Ollama calls with (not yet wired; see the
+# module docstring) via this semaphore. Initial value 2 (an estimate, a
+# conservative start consistent with K-10's "shared" note) — the real 120 s
+# threshold should be measured and tuned on the GPU/service machine.
 
 [pipeline.versions]
-# N-13: her aşamanın GÜNCEL sürümü TEK yerde. Gece raporu (N-12,
-# `nightly_report.py::derive_status`) bir kaydın `*_version`ını burasıyla
-# karşılaştırıp geride kalmışsa "aşama değişti" der. Elle artırılır (kod
-# hash'i otomatik alınmaz -- her refactor'da tüm korpusu bayat gösterip
-# gürültüde boğardı, bkz. task metni). Aşamanın ÇIKTISINI değiştiren her
-# değişiklikte artırılır (prompt, eşik, chunk sınırı, parser geometrisi);
-# biçimsel/refactor değişikliklerde artırılmaz.
-# İSTİSNA -- embedding modeli: model değişirse vektör boyutu değişebilir
-# (D-03: 4096 ölçülmüştü) ve koleksiyonun TAMAMI geçersiz olur; bu durumda
-# sürüm artırmak YETMEZ, koleksiyon yeniden kurulur (bkz. RUNBOOK.md).
+# N-13: each stage's CURRENT version in ONE place. The nightly report (N-12,
+# `nightly_report.py::derive_status`) compares a record's `*_version` with this
+# and says "stage changed" if stale. Bumped by hand (the code hash is NOT taken
+# automatically — it would mark the whole corpus stale on every refactor and
+# drown in noise; see the task text). Bumped on any change that alters a
+# stage's OUTPUT (prompt, threshold, chunk limit, parser geometry); not bumped
+# on cosmetic/refactor changes.
+# EXCEPTION — embedding model: if the model changes the vector dimension can
+# change (D-03: measured 4096) and the WHOLE collection becomes invalid; in that
+# case bumping the version is NOT ENOUGH, the collection is rebuilt (see RUNBOOK.md).
 parser_version = "1.5.0"
-# şimdi: pipeline/parser/parsers/base.py -> PARSER_VERSION (tek gerçek kaynak
-# hâlâ orada; bu satır N-13'ün "config'de de görünsün" kuralı için ayna)
+# now: pipeline/parser/parsers/base.py -> PARSER_VERSION (the single source of
+# truth is still there; this line mirrors it for N-13's "also visible in config")
 chunker_version = "1.0.1"
-# şimdi: pipeline/chunker/__init__.py -> CHUNKER_VERSION (aynı ayna kuralı)
+# now: pipeline/chunker/__init__.py -> CHUNKER_VERSION (same mirror rule)
 facts_version = "1.0.0"
-# YENİ (N-13) -- facts katmanı O grubuyla dirilene kadar hiç sürümlenmiyordu.
-# Başlangıç değeri 1.0.0; O grubunun ürettiği ilk yazıcı bu sürümü kayda
-# yazmalı (bkz. nightly_report.py N-12/N-13 notu, kapsam dışı bırakılan iş).
+# NEW (N-13) — the facts layer was never versioned until revived by the O group.
+# Initial value 1.0.0; the first writer produced by the O group must record this
+# version (see the nightly_report.py N-12/N-13 note, work left out of scope).
 vectorize_version = "1.0.0"
-# YENİ (N-13) -- embedding modeli DEĞİL, vectorize AŞAMASININ (payload şekli,
-# imza hesaplama mantığı) sürümü. Model değişimi ayrı istisna (yukarı bkz.).
+# NEW (N-13) — the version of the vectorize STAGE (payload shape, signature
+# computation logic), NOT the embedding model. Model change is a separate
+# exception (see above).

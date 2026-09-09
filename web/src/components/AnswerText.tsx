@@ -6,9 +6,9 @@ import { isCited, parseCitations } from "@/lib/api";
 import type { EvidenceChunk } from "@/types";
 
 /**
- * Cevap metni renderer'ı (B6): `(Kaynak: X, s. 4)` / `(Source: X, p. 4)`
- * kalıplarını tıklanabilir rozetlere çevirir — rozete tıklayınca karşılık gelen
- * kanıt dosyası o parçasıyla açılır.
+ * Answer text renderer (B6): converts `(Kaynak: X, s. 4)` / `(Source: X, p. 4)`
+ * patterns into clickable badges — clicking a badge opens the corresponding
+ * evidence file at that part.
  */
 export function AnswerText({
   text,
@@ -22,7 +22,7 @@ export function AnswerText({
   className?: string;
 }) {
   const rendered = useMemo(() => {
-    // (Kaynak: dosya.pdf, s. 12) / (Source: dosya.pdf, p. 12) -> rozet
+    // (Kaynak: dosya.pdf, s. 12) / (Source: dosya.pdf, p. 12) -> badge
     const re = /\((Kaynak|Source): ([^)]+)\)/g;
     const out: (string | { chip: string })[] = [];
     let last = 0;
@@ -78,7 +78,7 @@ function MarkdownInline({ text }: { text: string }) {
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
-        // cevap içi tablo/liste stilleri md-view sınıfından gelir
+        // in-answer table/list styles come from the md-view class
       }}
     >
       {text}

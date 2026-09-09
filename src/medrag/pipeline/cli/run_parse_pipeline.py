@@ -154,8 +154,8 @@ def _bootstrap() -> None:
     DOC_TYPES = {t.strip().upper() for t in os.getenv("DOC_TYPES", "").split(",") if t.strip()}
 
 
-# parser artık gerçek paket (src/medrag/pipeline/parser altında, D-39 Faz B);
-# sys.path hilesi/niteliksiz import gerekmiyor.
+# parser is now a real package (under src/medrag/pipeline/parser, D-39 Phase B);
+# no sys.path hack / unqualified import needed.
 from medrag.pipeline.cli.pipeline_config import (
     get_config as _pipeline_config,
 )
@@ -187,9 +187,9 @@ from medrag.pipeline.parser.parsers.registry import (
 from medrag.pipeline.parser.render.markdown import to_markdown
 
 PARSER_LABEL = "run_parse_pipeline.py"
-# PARSER_VERSION artık parser paketinde tanımlı ve buraya import edilir
-# (PROTOCOL.md KARAR-006): _needs_parse'ın yeniden-parse kapısı, IR'a yazılan
-# parser_version ve chunk provenance'ı hep aynı tek değeri görür.
+# PARSER_VERSION is now defined in the parser package and imported here
+# (PROTOCOL.md KARAR-006): _needs_parse's re-parse gate, the parser_version
+# written into the IR, and chunk provenance all see the same single value.
 
 
 def _now() -> str:
@@ -265,38 +265,38 @@ def _health_on() -> bool:
     return _pipeline_config().health.enabled
 
 
-#: Aciklamasi VLM-vision GEREKTIRMEYEN tipler (bkz. parser config/default.toml
-#: `[describe]` notu): tablo hucrelerden LLM ile, chart kendi XML'inden
-#: deterministik uretilir. Liste buradan buyurse `_vlm_work_configured()`
-#: gereksiz yere VLM canary'si kosar -- yanlis yon guvenli olan bu.
+#: Types NOT requiring VLM-vision (see the `[describe]` note in parser
+#: config/default.toml): tables are produced from cells via LLM, charts
+#: deterministically from their own XML. If this list grows, `_vlm_work_configured()`
+#: runs a needless VLM canary -- the fail-safe side is this.
 _VLMSIZ_DESCRIBE_TIPLERI = frozenset({"table", "chart"})
 
 
 def _vlm_work_configured() -> bool:
-    """VLM istemcisine bu kosuda GERCEKTEN is dusuyor mu.
+    """Does this run actually put any work on the VLM client.
 
-    Canary'nin amaci "bozuk bir modelle yuzlerce dokumani sessiz
-    image-fallback'e cevirmeyi" onlemek (bkz. yukaridaki blok). VLM'e hic
-    cagri gitmeyecekse o risk yok -- ama probe yine de calisip kosuyu
-    durduruyordu. `vlm_classify_configured()`in phase 0 icin kurdugu deseni
-    (satir ~633) VLM rolu icin de kuruyoruz.
+    The canary's purpose is to avoid "silently turning hundreds of documents
+    into image-fallbacks with a broken model" (see the block above). If no call
+    goes to the VLM that risk does not exist -- but the probe still ran and
+    stopped the run. We set up the pattern `vlm_classify_configured()` uses for
+    phase 0 (line ~633) for the VLM role too.
 
-    Muhafazakar: sayilan dort tuketiciden BIRI bile aciksa probe kosar.
-    `describe.enabled` acikken `types` yalnizca table/chart olabilir (ikisi de
-    VLM kullanmaz) ama bunu burada cozmeye calismiyoruz -- yanlis tarafa
-    dusmek, bozuk bir VLM'i fark etmemek demek olurdu."""
+    Conservative: if ANY of the four listed consumers is on, the probe runs.
+    With `describe.enabled` on, `types` can only be table/chart (neither uses
+    VLM) but we do not try to resolve that here -- falling to the wrong side
+    would mean not noticing a broken VLM."""
     cfg = _parser_config()
     return bool(
-        cfg.pdf.vlm              # sayfa okuma (hibrit/taranmis sayfalar)
-        or cfg.image_ocr.enabled  # gorsel OCR
-        # aciklama: strateji TIPE gore degisir -- `table` hucrelerden LLM ile,
-        # `chart` kendi XML'inden deterministik uretilir (ikisi de VLM'siz);
-        # geri kalan her tip VLM-vision'a gider. Yani yalniz table/chart
-        # listedeyse VLM'e is DUSMEZ.
+        cfg.pdf.vlm              # page reading (hybrid/scanned pages)
+        or cfg.image_ocr.enabled  # image OCR
+        # note: the strategy differs BY TYPE -- `table` is generated from cells
+        # via LLM, `chart` deterministically from its own XML (both VLM-free);
+        # every other type goes to VLM-vision. So if only table/chart are in the
+        # list, no work falls to the VLM.
         or bool(cfg.describe.enabled
                 and set(cfg.describe.types) - _VLMSIZ_DESCRIBE_TIPLERI)
-        # siniflandirma VLM_CLASSIFY istemcisini kullanir, o da
-        # yapilandirilmamissa VLM'in KENDISINE duser (get_vlm_client("classify"))
+        # classification uses the VLM_CLASSIFY client, which falls back to the
+        # VLM's own client if it is not configured (get_vlm_client("classify"))
         or cfg.visual.classify
     )
 
@@ -583,13 +583,13 @@ def _parse_argv(argv: list[str] | None = None) -> int | None:
 
 
 def compute_pending(limit: int | None = None) -> tuple[list[dict], dict]:
-    """Pure/read-only: `document_nodes.json`'i okuyup `_needs_parse`/`DOC_TYPES`
-    filtresinden gecen `todo` listesini dondurur. Dosyaya HICBIR sey YAZMAZ, ag
-    cagrisi (health probe/VLM/LLM) YAPMAZ -- N-03'un kuru-kosu raporlamasi bu
-    yuzden bu fonksiyonu cagirir, `main()` gibi gercek isi tetiklemez.
-    `_bootstrap()`'in cagrilmis olmasi ONKOSULDUR (DOCUMENT_NODES_PATH/DOC_TYPES
-    kullanir). Ikinci deger, cagiran tarafin raporlayabilecegi ozet bilgi
-    (`data`, `pending`, `total`) tasir."""
+    """Pure/read-only: reads `document_nodes.json` and returns the `todo` list
+    that passes the `_needs_parse`/`DOC_TYPES` filters. Writes NOTHING to disk
+    and makes no network calls (health probe/VLM/LLM) -- this is why N-03's
+    dry-run reporting calls this function instead of `main()` triggering real
+    work. `_bootstrap()` having been called is a PRECONDITION (it uses
+    DOCUMENT_NODES_PATH/DOC_TYPES). The second value carries summary info the
+    caller can report (`data`, `pending`, `total`)."""
     with open(DOCUMENT_NODES_PATH, encoding="utf-8") as f:
         data = json.load(f)
 
@@ -694,12 +694,12 @@ def main(argv: list[str] | None = None) -> int:
         counts[s] = counts.get(s, 0) + 1
     print("summary:", counts)
 
-    # N-21: `run_nightly.py::stage_parse` bunu ParseSection.processed_count'a
-    # yazar -- daha once bu deger hesaplanip ATILIYORDU (fonksiyon `None`
-    # donuyordu), rapor "islenen dokuman sayisi" icin uydurma bir sayi
-    # yazmak zorunda kalmasin diye disariya acildi.
+    # N-21: `run_nightly.py::stage_parse` writes this into ParseSection.processed_count
+    # -- before this the value was computed and DISCARDED (the function returned
+    # `None`), so the report had to invent a made-up number for "documents
+    # parsed"; it was exposed out so it wouldn't have to.
     return len(todo)
 
 
 if __name__ == "__main__":
-    main()  # dönüş değeri (N-21: islenen dokuman sayisi) CLI çıkış kodu DEĞİL
+    main()  # return value (N-21: number of documents parsed) NOT the CLI exit code

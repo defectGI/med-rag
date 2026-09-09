@@ -1,13 +1,13 @@
-"""Tek dosyalık danışman kilit: `fcntl.flock` ile registry kilidi.
+"""Single-file advisory lock: the registry lock via `fcntl.flock`.
 
-Registry'yi (document_nodes.json) İKİ yazar günceller: api (upload/silme)
-ve worker (parse/chunk blokları). Atomik replace tek başına yeterli değil --
-iki yazar aynı an okuyup farklı kopyalar yazarsa birinin kaydı KAYBOLUR.
-`flock` Linux'ta süreçler arası karşılıklı dışlama sağlar; kilit dosyası
-registry'nin kardeşi `<ad>.lock`tur.
+The registry (document_nodes.json) is updated by TWO writers: api (upload/delete)
+and worker (parse/chunk blocks). Atomic replace alone is not enough --
+if two writers read and write different copies at the same time, one's record is
+LOST. `flock` provides inter-process mutual exclusion on Linux; the lock file is
+the registry's sibling `<name>.lock`.
 
-api tarafı AYNI kilidi AYNI yolda alır (aynı sözleşme); kilit dosyası
-adı `<registry adı>.lock`.
+The api side takes the SAME lock at the SAME path (same contract); the lock
+file name is `<registry name>.lock`.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ def lock_path_for(target: Path) -> Path:
 
 @contextmanager
 def file_lock(target: Path) -> Iterator[Path]:
-    """`target` (korunacak dosyanın KENDİSİ) için süreç-arası münhasır kilit."""
+    """Inter-process exclusive lock for `target` (the file being protected)."""
     lp = lock_path_for(target)
     lp.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(lp, os.O_CREAT | os.O_RDWR, 0o644)

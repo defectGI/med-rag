@@ -1,41 +1,41 @@
-"""Uçtan uca entrypoint: chunk JSON klasörü → Qdrant koleksiyonu.
+"""End-to-end entrypoint: chunk JSON folder → Qdrant collection.
 
-Kullanım: ``python -m vectorize`` — yapılandırma env değişkenleriyledir
-(chunker/pipeline ile aynı konvansiyon: koşu `.env`/ortamdan yapılandırılır).
-İKİ istisna komut satırı bayrağı (chunker'ın `--limit` kararıyla aynı
-gerekçe: "ne kadarını koşayım" kalıcı bir ayar değil):
+Usage: ``python -m vectorize`` -- configuration is via env vars
+(same convention as chunker/pipeline: the run is configured from .env/environment).
+TWO exceptions are command-line flags (same reasoning as chunker's `--limit`
+decision: "how much to run" is not a persistent setting):
 
-    --limit N   en fazla N kapsam işlenir (keşif sırasına göre ilk N;
-                deneme/örnekleme için).
-    --force     bayatlık kapısını (yerel state.json) yok sayar, TÜM
-                kapsamları yeniden embed eder (tek seferlik bypass).
+    --limit N   at most N scopes are processed (the first N in discovery order;
+                for trial/sampling).
+    --force     ignores the staleness gate (local state.json), re-embeds ALL
+                scopes (one-off bypass).
 
-    VECTORIZE_INPUT_DIR   zorunlu — chunk JSON'larının kökü (rekürsif taranır;
-                          `discover.py`, hem eski per-doküman hem yeni
-                          all_chunks/all_raptor/all_combined yerleşimini tanır)
-    VECTORIZE_OUTPUT_DIR  default ./storage — yerel state.json + run_log.json
-                          (gerçek çıktı Qdrant koleksiyonudur, bkz.
+    VECTORIZE_INPUT_DIR   required -- root of the chunk JSONs (scanned recursively;
+                          `discover.py`, recognizes both the old per-document and the
+                          new all_chunks/all_raptor/all_combined layouts)
+    VECTORIZE_OUTPUT_DIR  default ./storage -- local state.json + run_log.json
+                          (the real output is the Qdrant collection, see
                           storage/README.md)
-    VECTORIZE_CONFIG      opsiyonel — default.toml üstüne kısmi override TOML
-    VECTORIZE_PROGRESS    on | off (default on) — tqdm ilerleme çubuğu
-    EMBEDDING_*           sağlayıcı bağlantısı (bkz. .env.example)
-    QDRANT_URL/QDRANT_API_KEY  bağlantı (bkz. .env.example)
+    VECTORIZE_CONFIG      optional -- partial override TOML on top of default.toml
+    VECTORIZE_PROGRESS    on | off (default on) -- tqdm progress bar
+    EMBEDDING_*           provider connection (see .env.example)
+    QDRANT_URL/QDRANT_API_KEY  connection (see .env.example)
 
-Bayatlık kapısı: her kapsamın imzası (`core.ChunkSet.signature`) yerel
-state.json'a yazılır; bir sonraki koşuda aynı imzalı kapsam atlanır
-(config/default.toml `[staleness] skip_unchanged`, varsayılan açık —
-embedding gerçek bir uzak LLM/GPU çağrısıdır, chunker'ın "her koşu tüm
-korpusu yeniden üret" kararının (KARAR-012) aksine burada maliyet önemli).
+Staleness gate: each scope's signature (`core.ChunkSet.signature`) is written
+to the local state.json; on the next run a scope with the same signature is
+skipped (config/default.toml `[staleness] skip_unchanged`, default on -- embedding
+is a real remote LLM/GPU call, so unlike chunker's "re-produce the whole corpus
+each run" decision (KARAR-012) here cost matters).
 
-Kapsam güncelleme kontratı: bir kapsam (yeniden) embed edildiğinde önce
-Qdrant'taki o kapsama ait TÜM eski noktalar silinir, sonra yeni set baştan
-yazılır (`store.replace_scope` — gerekçe: chunk node_id'leri set-kapsamlıdır,
-KARAR-004; "yalnız değişeni upsert et" yanlış eşleşme üretir).
+Scope update contract: when a scope is (re-)embedded, first ALL old points of
+that scope in Qdrant are deleted, then the new set is written from scratch
+(`store.replace_scope` -- rationale: chunk node_ids are set-scoped, KARAR-004;
+"upsert only the changed one" produces wrong matches).
 
-Hata modeli: kapsam başına hata loglanır, koşu diğer kapsamlarla sürer.
-Çıkış kodu 0 = hepsi tamam, 1 = en az bir kapsam başarısız, 2 = yapılandırma
-hatası (eksik env, hiç kapsam bulunamaması dahil — boş girdi klasörü
-neredeyse her zaman yanlış yol demektir).
+Error model: per-scope errors are logged, the run continues with the other scopes.
+Exit code 0 = all OK, 1 = at least one scope failed, 2 = configuration error
+(including missing env, no scopes found -- an empty input folder almost always
+means the wrong path).
 """
 
 from __future__ import annotations
@@ -91,10 +91,10 @@ def _select_nodes(chunk_set: ChunkSet, *, include_summary_nodes: bool) -> list[C
 
 def _node_payload(node: ChunkNode, chunk_set: ChunkSet) -> dict:
     # `chunk_schema_version`/`chunk_generated_at` (PROTOCOL KARAR-067):
-    # evidence chunk'ın HANGİ chunk üretiminden geldiği yanıt zincirinin
-    # (retrieval metadata -> chatbot conversation log) sonuna kadar izlenebilir
-    # olmalı -- ikisi de zaten chunker'ın ChunkSet'inde var, burada sadece
-    # payload'a AKTARILIYOR (yeni bir alan icat edilmiyor).
+    # which chunk production an evidence chunk came from must be traceable to
+    # the end of the response chain (retrieval metadata -> chatbot conversation
+    # log) -- both already exist in chunker's ChunkSet, here they are just
+    # COPIED into the payload (no new field is invented).
     prov = chunk_set.provenance
     return {
         "node_id": node.node_id,
@@ -126,8 +126,8 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 
 def _embed_scope(kapsam: ChunkScope, *, cfg: VectorizeConfig, embedder,
                  store: QdrantVectorStore) -> int:
-    """Bir kapsamı embed edip Qdrant'a yazar, o kapsamdaki nokta sayısını
-    döndürür (0 dahil — metinsiz/boş kapsam yalnız eski noktaları siler)."""
+    """Embeds a scope and writes it to Qdrant, returns the number of points in
+    that scope (including 0 -- a textless/empty scope only deletes old points)."""
     nodes = _select_nodes(kapsam.chunk_set,
                           include_summary_nodes=cfg.embedding.include_summary_nodes)
     if not nodes:
@@ -151,20 +151,19 @@ def _embed_scope(kapsam: ChunkScope, *, cfg: VectorizeConfig, embedder,
 
 @dataclass
 class VectorizeRunStats:
-    """N-21: `calistir()`in ESKİ tek `int` (çıkış kodu) dönüşü, gecelik
-    raporun `VectorizeSection`ına yazılabilecek gerçek sayıları TAŞIMIYORDU
-    -- `basarili`/`nokta_sayisi` yalnız `log.info` ile YAZDIRILIYOR, hiçbir
-    yere DÖNDÜRÜLMÜYORDU. `main()` hâlâ düz `int` döner (CLI çıkış kodu
-    sözleşmesi DEĞİŞMEDİ, `main().exit_code` DEĞİL) -- yalnız `calistir()`i
-    doğrudan çağıran taraf (`run_nightly.py::stage_vectorize`) bu zengin
-    nesneyi görür.
+    """N-21: `calistir()`'s OLD single `int` (exit code) return did NOT carry the
+    real numbers that the nightly report's `VectorizeSection` can write --
+    `basarili`/`nokta_sayisi` were only PRINTED via `log.info`, never RETURNED
+    anywhere. `main()` still returns a plain `int` (the CLI exit-code contract
+    is UNCHANGED, NOT `main().exit_code`) -- only the side that directly calls
+    `calistir()` (`run_nightly.py::stage_vectorize`) sees this rich object.
 
-    `points_deleted`/`total_points_after` burada YOK -- ikisi de bu
-    fonksiyonun yerel sayaçlarından gelmiyor: `store.replace_scope` silinen
-    nokta sayısını hiç döndürmüyor, "son toplam" ise gerçek bir Qdrant
-    `count()` ağ çağrısı ister (bu makinenin sahte `_SahteStore`'ları bunu
-    desteklemiyor). `nightly_report.py::VectorizeSection` bu ikisini
-    `None` ("ölçülmedi") kabul eder -- bkz. o modülün docstring'i."""
+    `points_deleted`/`total_points_after` are NOT here -- neither comes from
+    this function's local counters: `store.replace_scope` never returns the
+    deleted point count, and "the final total" would require a real Qdrant
+    `count()` network call (this machine's fake `_SahteStore`s do not support
+    it). `nightly_report.py::VectorizeSection` accepts both as `None`
+    ("not measured") -- see that module's docstring."""
 
     exit_code: int
     points_written: int = 0
@@ -173,10 +172,10 @@ class VectorizeRunStats:
 
 def calistir(env: Mapping[str, str] = os.environ, *, limit: int | None = None,
              force: bool = False) -> VectorizeRunStats:
-    """Koşunun tamamı; `env` injectable (testler sözlük verir). `limit`/`force`
-    `main`'in argv ayrıştırmasından geçirilir. `VectorizeRunStats` döner
-    (bkz. o dataclass'ın docstring'i) -- `main()` yalnız `.exit_code`ini
-    kullanır, CLI çıkış kodu sözleşmesi DEĞİŞMEDİ."""
+    """The whole run; `env` is injectable (tests pass a dict). `limit`/`force`
+    are passed through from `main`'s argv parsing. Returns `VectorizeRunStats`
+    (see that dataclass's docstring) -- `main()` only uses its `.exit_code`,
+    the CLI exit-code contract is UNCHANGED."""
     burasi = Path(__file__).resolve().parent.parent
 
     input_dir_ham = env.get("VECTORIZE_INPUT_DIR")
@@ -252,15 +251,15 @@ def calistir(env: Mapping[str, str] = os.environ, *, limit: int | None = None,
                 basarili += 1
                 toplam_nokta_yazildi += nokta_sayisi
                 log.info("%s → %d nokta", kapsam.scope_id, nokta_sayisi)
-                # N-04: her kapsamdan SONRA anında kaydedilir (aşama-sonu
-                # commit noktası) -- eskiden `save_state` yalnız döngü
-                # BİTİNCE bir kez çağrılıyordu, yani koşu 50 kapsamın
-                # 49'unu Qdrant'a yazıp tam da 50.de kesilirse state.json
-                # hâlâ BOŞTU: bir sonraki koşu o 49 kapsamı da (gereksiz
-                # ama YANLIŞ değil) yeniden embed ediyordu -- "kaldığı
-                # yerden devam" kabul kriterini karşılamıyordu. `save_state`
-                # zaten write-then-replace (atomic), bu yüzden döngü
-                # içinde sık çağırmak güvenli.
+                # N-04: saved immediately after EACH scope (stage-end commit
+                # point) -- previously `save_state` was called only once after
+                # the loop FINISHED, so if a run wrote 49 of 50 scopes and was
+                # cut off exactly at the 50th, state.json was STILL EMPTY: the
+                # next run would re-embed those 49 scopes too (unnecessary but
+                # not WRONG) -- it failed the "resume where it left off"
+                # acceptance criterion. `save_state` is already
+                # write-then-replace (atomic), so calling it frequently inside
+                # the loop is safe.
                 save_state(state, out.state_file)
             except Exception:
                 log.exception("kapsam işlenemedi: %s (%s)", kapsam.scope_id,
@@ -275,12 +274,12 @@ def calistir(env: Mapping[str, str] = os.environ, *, limit: int | None = None,
 
 
 def main(argv: list[str] | None = None) -> int:
-    """``python -m vectorize`` girişi: log + argv + .env, sonra `calistir`."""
+    """Entry point for ``python -m vectorize``: log + argv + .env, then `calistir`."""
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
     from dotenv import load_dotenv
-    load_dotenv(Path(__file__).resolve().parent / ".env")  # .env yoksa no-op; tanımlı gerçek env değişkenini ezmez
+    load_dotenv(Path(__file__).resolve().parent / ".env")  # no-op if .env missing; does not override a defined real env var
 
     args = _parse_args(argv if argv is not None else sys.argv[1:])
     return calistir(env=os.environ, limit=args.limit, force=args.force).exit_code

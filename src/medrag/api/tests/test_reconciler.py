@@ -18,7 +18,7 @@ from medrag.api.reconciler import (
 )
 from medrag.api.session_state import SessionState, Subject, TaskSnapshot
 
-_LABELS = ["product_fact", "comparison", "out_of_scope"]
+_LABELS = ["medical_fact", "comparison", "out_of_scope"]
 
 
 # --- pure helpers ------------------------------------------------------------
@@ -329,10 +329,10 @@ def test_apply_invalid_transition_defaults_continue():
 
 def test_apply_fused_intent_accepts_valid_label():
     state = SessionState(turn=0)
-    data = {"resolved_query": "de1000 gücü", "transition": "continue",
-            "confidence": 0.9, "intent": "product_fact"}
-    res = _apply(state, "de1000 gücü", data, decay_window=6, intent_labels=_LABELS)
-    assert res.intent == "product_fact"
+    data = {"resolved_query": "arveles dozu", "transition": "continue",
+            "confidence": 0.9, "intent": "medical_fact"}
+    res = _apply(state, "arveles dozu", data, decay_window=6, intent_labels=_LABELS)
+    assert res.intent == "medical_fact"
 
 
 def test_apply_fused_intent_rejects_unknown_label():
@@ -346,7 +346,7 @@ def test_apply_fused_intent_rejects_unknown_label():
 def test_apply_no_labels_means_no_intent():
     # Fusion off (no intent_labels given) -> None even if the model returns an intent.
     state = SessionState(turn=0)
-    data = {"resolved_query": "x", "transition": "continue", "intent": "product_fact"}
+    data = {"resolved_query": "x", "transition": "continue", "intent": "medical_fact"}
     res = _apply(state, "x", data, decay_window=6)
     assert res.intent is None
 
@@ -363,12 +363,13 @@ def test_apply_fused_intent_on_switch_and_digress():
 def test_build_system_prompt_includes_intent_only_with_labels():
     with_labels = _build_system_prompt(_LABELS)
     without = _build_system_prompt(None)
-    assert "product_fact" in with_labels and '"intent"' in with_labels
-    assert "product_fact" not in without and '"intent"' not in without
+    assert "medical_fact" in with_labels and '"intent"' in with_labels
+    assert "medical_fact" not in without and '"intent"' not in without
     # Labels must come with a definition + few-shot catalog, NOT a bare name
     # list -- catches the bare-list regression: intent must not silently
-    # regress without the signal that separates recommendation from aggregation.
-    assert "asking for a suggestion for the user's own use case" in with_labels
+    # regress without the signal that separates medical_fact from
+    # clinical_decision.
+    assert "a factual question whose answer is in the uploaded medical documents" in with_labels
     assert " -> " in with_labels
 
 
@@ -379,17 +380,17 @@ def test_build_system_prompt_includes_dropped_constraints_field():
 
 def test_llm_reconciler_fused_intent(monkeypatch):
     def fake_post(url, payload, *, api_key, timeout):
-        body = '{"resolved_query": "de1100 gücü", "transition": "continue", ' \
-               '"task": "karşılaştırma", "subjects": ["de1100"], ' \
-               '"constraints": [], "focus": "güç", "confidence": 0.9, ' \
-               '"intent": "product_fact"}'
+        body = '{"resolved_query": "arveles dozu", "transition": "continue", ' \
+               '"task": "doz bilgisi", "subjects": ["arveles"], ' \
+               '"constraints": [], "focus": "doz", "confidence": 0.9, ' \
+               '"intent": "medical_fact"}'
         return {"choices": [{"message": {"content": body}}]}
 
     monkeypatch.setattr(reconciler_mod, "_post_json", fake_post)
     rec = LLMReconciler(base_url="http://x/v1", model="m", intent_labels=_LABELS)
-    res = asyncio.run(rec.reconcile(SessionState(), [], "peki ya diğeri"))
-    assert res.intent == "product_fact"
-    assert res.resolved_query == "de1100 gücü"
+    res = asyncio.run(rec.reconcile(SessionState(), [], "arveles dozu nedir"))
+    assert res.intent == "medical_fact"
+    assert res.resolved_query == "arveles dozu"
 
 
 # --- LLMReconciler (mocked HTTP) ---------------------------------------------

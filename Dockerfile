@@ -104,6 +104,9 @@ COPY --from=builder-serve --chown=app:app /app/web /app/web
 #   chatbot/ directory, was not moved with the code).
 COPY --chown=app:app facts/db/ /app/facts/db/
 COPY --chown=app:app chatbot/text2sql/ /app/chatbot/text2sql/
+# strateji prompt'ları -- orchestrator STRATEGIES_DIR=/app/chatbot/strategies
+# üzerinden okur; kapalıysa her flow strateji metni olmadan (boş string) koşar.
+COPY --chown=app:app chatbot/strategies/ /app/chatbot/strategies/
 
 # Writable roots (all owned by the app user):
 # - /data, /uploads, /logs: compose volume mount points (sqlite, uploads, logs).

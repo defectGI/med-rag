@@ -1,17 +1,17 @@
-"""Girdi sözleşmesi: `chunker`in ürettiği ChunkSet/ChunkNode JSON'ının OKUYUCU
-tarafı (kök AGENTS.md mimari kuralı — bileşenler birbirini import etmez, tek
-köprü `pipeline`dır; `vectorize` bu yüzden `chunker.core.chunk`ı import ETMEZ,
-şekli burada AYNALAR).
+"""Input contract: the READER side of the ChunkSet/ChunkNode JSON that
+`chunker` produces (root AGENTS.md architectural rule -- components do not
+import each other, the single bridge is `pipeline`; `vectorize` therefore does
+NOT import `chunker.core.chunk`, it MIRRORS the shape here).
 
-Kural (`retrieval/` paketindeki aynı desenle, ARCHITECTURE.md #9): şema kod
-bağımlılığı değil PYDANTIC MODELİ olarak tanımlanır, `extra="ignore"` ile —
-chunker şeması yeni bir alan eklerse (schema_version yükselmeden) vectorize
-sessizce tolere eder; yalnız BU modülün okuduğu alanlardan biri kaldırılır/adı
-değişirse patlar (pydantic zorunlu alan hatası).
+Rule (same pattern as the `retrieval/` package, ARCHITECTURE.md #9): the schema
+is defined as a PYDANTIC MODEL, not a code dependency, with `extra="ignore"` --
+if chunker's schema adds a new field (without bumping schema_version) vectorize
+silently tolerates it; it only breaks if one of the fields THIS module reads is
+removed/renamed (pydantic required-field error).
 
-Bilinçli olarak taşınmayanlar: `summary`, `parent_id`, `child_ids`,
-`source_block_ids`, `cross_refs`, split/flex diagnostikleri — vektörleştirme
-bunlara ihtiyaç duymaz, payload'ı şişirmemek için hiç okunmaz.
+Deliberately not carried over: `summary`, `parent_id`, `child_ids`,
+`source_block_ids`, `cross_refs`, split/flex diagnostics -- vectorization does
+not need them and never reads them, to avoid bloating the payload.
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ class ChunkProvenance(BaseModel):
 
 
 class ChunkNode(BaseModel):
-    """Vectorize'ın gördüğü alan alt kümesi (chunker'ın tam şeması için bkz.
+    """The subset of fields vectorize sees (for chunker's full schema see
     `chunker/chunker/core/chunk.py`)."""
 
     model_config = ConfigDict(extra="ignore")
@@ -78,7 +78,7 @@ class ChunkNode(BaseModel):
 
 
 class ChunkSet(BaseModel):
-    """Bir kapsamın (doküman/`_corpus`/`_profile.*`) chunk çıktısı."""
+    """The chunk output of a scope (document/`_corpus`/`_profile.*`)."""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -90,17 +90,17 @@ class ChunkSet(BaseModel):
     nodes: list[ChunkNode] = Field(default_factory=list)
 
     def signature(self, *, embedding_model: str) -> dict[str, Any]:
-        """Bayatlık imzası: aynı embedding modeliyle aynı imza → yeniden
-        embed etmeye gerek yok (bkz. `state.py`). `generated_at` BİLİNÇLİ
-        olarak dışarıda — yeniden üretilen ama içeriği aynı kalan bir set
-        gereksiz yere yeniden embed edilmesin (chunker'ın kendi
-        `ChunkProvenance.same_inputs` ilkesiyle aynı gerekçe).
+        """Staleness signature: same signature + same embedding model → no
+        need to re-embed (see `state.py`). `generated_at` is DELIBERATELY
+        excluded -- a set that was re-produced but whose content stayed the
+        same should not be re-embedded needlessly (same reasoning as chunker's
+        own `ChunkProvenance.same_inputs` principle).
 
-        `text_sha256` provenance alanlarının yakalamadığı in-place text
-        düzenlemelerini (örn. `strip_injected_ocr.py`nin OCR metnini
-        node.text'ten sıyırması — chunker_version/raw_sha256/node_count
-        değişmez) yakalamak için var; onlarsız böyle bir edit sessizce
-        "değişmemiş" sayılıp yeniden embed atlanırdı."""
+        `text_sha256` exists to catch in-place text edits the provenance
+        fields do not capture (e.g. `strip_injected_ocr.py` stripping OCR text
+        from node.text -- chunker_version/raw_sha256/node_count do not
+        change); without it such an edit would silently count as "unchanged"
+        and be re-embed skipped."""
         prov = self.provenance
         source = prov.source if prov else None
         raptor = prov.raptor if prov else None

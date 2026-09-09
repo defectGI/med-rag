@@ -128,7 +128,7 @@ def build_windows(ir_json: Path, images: list[tuple[str, bytes]], *,
         # so this import ALWAYS failed and page-aligned windowing silently
         # fell back to the single-call path on every real run, not just in
         # tests. `medrag` is an installed package (pyproject.toml
-        # include=["urun*","tools*"], see cli.py's own comment on that), so
+        # include=["medrag*","tools*"], see cli.py's own comment on that), so
         # the real dotted path always resolves without any sys.path hack --
         # kept as a lazy import (not a module-level one) only so this module
         # still imports cleanly in contexts where `medrag.pipeline.parser`'s

@@ -16,15 +16,12 @@ import re
 from medrag.api.orchestrator import STRATEGIES_DIR, load_strategy
 
 _ALL_STRATEGY_KEYS = [
-    "aggregation",
+    "medical_fact",
+    "clinical_decision",
     "comparison",
-    "doc_download",
-    "doc_question",
+    "interaction",
+    "library",
     "out_of_scope",
-    "product_fact",
-    "quote_or_contact",
-    "recommendation",
-    "visual_request",
 ]
 
 # Tone/style expressions moved to the persona (answering_model.py::_BASE_PERSONA),
@@ -36,7 +33,7 @@ _TONE_PATTERNS = [
 ]
 
 
-def test_all_nine_strategy_files_exist():
+def test_all_six_strategy_files_exist():
     for key in _ALL_STRATEGY_KEYS:
         assert (STRATEGIES_DIR / f"{key}.md").exists()
 
@@ -98,11 +95,10 @@ def test_load_strategy_with_marker_returns_only_text_before_it(tmp_path, monkeyp
     assert "decision:" not in result
 
 
-def test_visual_request_model_facing_section_still_effectively_empty():
-    """visual_request.md was left without real content (deliberately out of
-    scope) -- its model-facing section should be only the title/Intent/Meaning
-    scaffold, with no actual guidance text."""
-    text = load_strategy("visual_request")
-    assert "visual_request" in text
+def test_out_of_scope_model_facing_section_still_effectively_a_capability_list():
+    """out_of_scope.md keeps a concrete "what I can help with" list in its
+    model-facing section, and its developer notes (Flow line) must not leak."""
+    text = load_strategy("out_of_scope")
+    assert "out_of_scope" in text
     assert "Geliştirici Notları" not in text
-    assert "sql_topn" not in text  # the Flow line from dev-notes must not leak
+    assert "no_retrieval" not in text  # the Flow line from dev-notes must not leak

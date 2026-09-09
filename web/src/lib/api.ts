@@ -65,6 +65,9 @@ export const api = {
   async documentContent(docId: string): Promise<{ file_name: string; markdown: string }> {
     return json_or_error(await fetch(`${BASE}/api/library/documents/${docId}/content`));
   },
+  async documentOriginal(docId: string): Promise<{ file_name: string; content: string }> {
+    return json_or_error(await fetch(`${BASE}/api/library/documents/${docId}/original`));
+  },
   documentFileUrl(docId: string): string {
     return `${BASE}/api/library/documents/${docId}/file`;
   },
@@ -124,7 +127,7 @@ export const api = {
     if (!resp.ok) throw new ApiError(resp.status, "yeni sohbet başlatılamadı");
   },
 
-  /** Sohbet akışı: SSE olaylarını geri çağırmalara dağıtır. */
+  /** Chat stream: dispatches SSE events to callbacks. */
   streamChat(
     message: string,
     handlers: {
@@ -172,7 +175,7 @@ export const api = {
     });
   },
 
-  /** Kütüphane durum akışı: her anlık görüntüde callback tetiklenir. */
+  /** Library status stream: fires a callback on each snapshot. */
   openDocumentStream(onDocuments: (docs: DocumentItem[]) => void): EventSource {
     const es = new EventSource(`${BASE}/api/library/events`);
     es.addEventListener("documents", (ev) => {
@@ -183,8 +186,8 @@ export const api = {
   },
 };
 
-/** Arka uç `snippet`/`source_kind` alanlarını SPA'nın `text`/`kind` şekline
- * çevirir -- hem canlı akış hem geçmiş aynı şekli kullanır. */
+/** Converts the backend `snippet`/`source_kind` fields into the SPA's `text`/`kind`
+ * shape -- both the live stream and history use the same shape. */
 function normalizeChunks(chunks: unknown[]): EvidenceChunk[] {
   return (chunks ?? []).map((c) => {
     const raw = (c ?? {}) as Record<string, unknown>;
@@ -217,10 +220,10 @@ export function formatDate(iso: string | null | undefined): string {
 export type { ChatMessage };
 
 /**
- * Cevap metnindeki citation rozetlerini çıkarır: hem `(Kaynak: X, s. 4)` /
- * `(Source: X, p. 4)` sözlü biçimi hem `[1]`/`[2]` numaralı biçimi.
- * Dönüş: `{labels, indices}` -- labels sözlü kaynak etiketleri
- * (X "file.pdf" veya doc_id), indices ise `[n]` biçimindeki 1-bazlı numaralar.
+ * Extracts the citation badges from the answer text: both the textual form
+ * `(Kaynak: X, s. 4)` / `(Source: X, p. 4)` and the numbered `[1]`/`[2]` form.
+ * Returns: `{labels, indices}` -- labels are the textual source labels
+ * (X "file.pdf" or doc_id), indices are the 1-based numbers in `[n]` form.
  */
 export function parseCitations(text: string): { labels: string[]; indices: number[] } {
   const labels: string[] = [];
@@ -237,7 +240,7 @@ export function parseCitations(text: string): { labels: string[]; indices: numbe
   return { labels, indices: [...new Set(indices)] };
 }
 
-/** Bir kanıt chunk'ı, cevapta cite edilmiş ki küçük bir kimlikle eşleşir. */
+/** A chunk of evidence matches a small identifier cited in the answer. */
 export function isCited(chunk: EvidenceChunk, labels: string[]): boolean {
   if (labels.length === 0) return false;
   const hay = `${chunk.doc_id} ${chunk.id} ${chunk.file_name ?? ""} ${chunk.section ?? ""}`.toLowerCase();

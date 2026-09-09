@@ -22,10 +22,10 @@ def test_parse_exact_label(label):
 @pytest.mark.parametrize(
     "raw,expected",
     [
-        ("  product_fact ", IntentLabel.PRODUCT_FACT),
-        ("Product_Fact", IntentLabel.PRODUCT_FACT),
+        ("  medical_fact ", IntentLabel.MEDICAL_FACT),
+        ("Medical_Fact", IntentLabel.MEDICAL_FACT),
         ('"out_of_scope"', IntentLabel.OUT_OF_SCOPE),
-        ("intent: doc_question", IntentLabel.DOC_QUESTION),
+        ("intent: clinical_decision", IntentLabel.CLINICAL_DECISION),
         ("The label is comparison.", IntentLabel.COMPARISON),
     ],
 )
@@ -55,8 +55,8 @@ def test_verbose_unparseable_is_a_fallback(raw):
 
 
 def test_verbose_substring_match_is_not_a_fallback():
-    label, was_fallback = parse_label_verbose("intent: doc_question")
-    assert label is IntentLabel.DOC_QUESTION
+    label, was_fallback = parse_label_verbose("intent: medical_fact")
+    assert label is IntentLabel.MEDICAL_FACT
     assert was_fallback is False
 
 

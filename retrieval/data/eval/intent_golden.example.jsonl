@@ -1,7 +1,7 @@
-# EXAMPLE / REPLACEABLE intent golden set — 52 items across the 9 v1 classes.
-# This is a placeholder authored to bootstrap the eval harness. Replace the
-# content with your own labelled queries; keep the format. Copy to
-# `intent_golden.jsonl` (untracked) for real runs.
+# EXAMPLE / REPLACEABLE intent golden set — 52 items across the 6 med-rag
+# medical classes. This is a placeholder authored to bootstrap the eval
+# harness. Replace the content with your own labelled queries; keep the
+# format. Copy to `intent_golden.jsonl` (untracked) for real runs.
 #
 # Style note: queries are intentionally written the way real users type —
 # lowercase, missing Turkish diacritics, no punctuation, abbreviations,
@@ -10,83 +10,66 @@
 # Format per line: {"query": str, "expected_intent": <label>, "lang": "tr"}
 # Blank lines and lines starting with '#' are ignored.
 
-# 2026-08-27 fix: this set used to label single-product/aggregate PRICE
-# queries as product_fact/aggregation -- but `product_fact`/`aggregation`
-# route to real SQL retrieval (see config/default.toml [routing.intents]),
-# and the `product` table genuinely has list_price/price_break_* columns
-# (facts/db/schema_rag.sql), so those queries could surface a real DB price
-# figure. That contradicts quote_or_contact's own strategy file (chatbot/
-# strategies/quote_or_contact.md: "A price quote is NOT here and must not
-# be generated"). All price/delivery/stock/bulk-purchase queries below were
-# moved to quote_or_contact to match (see intent_classification/prompt.py's
-# matching fix).
+# --- medical_fact: a factual answer in the uploaded medical documents ---
+{"query": "arveles dozu kac mg", "expected_intent": "medical_fact", "lang": "tr"}
+{"query": "deksketoprofenin yan etkileri neler", "expected_intent": "medical_fact", "lang": "tr"}
+{"query": "bu ilacin kontrendikasyonu ne", "expected_intent": "medical_fact", "lang": "tr"}
+{"query": "hipertansiyon tedavisinde ilk secenek nedir", "expected_intent": "medical_fact", "lang": "tr"}
+{"query": "parasetamol maksimum gunluk dozu ne", "expected_intent": "medical_fact", "lang": "tr"}
+{"query": "ibuprofen hangi enzimi inhibe eder", "expected_intent": "medical_fact", "lang": "tr"}
+{"query": "arveles gebelerde kullanilabilir mi bilgisi", "expected_intent": "medical_fact", "lang": "tr"}
+{"query": "bu ilacin yarilanma omru kac saat", "expected_intent": "medical_fact", "lang": "tr"}
+{"query": "aspirin antitrombositer etki dozu nedir", "expected_intent": "medical_fact", "lang": "tr"}
+{"query": "metformin renal yetmezlikte nasil ayarlanir", "expected_intent": "medical_fact", "lang": "tr"}
+{"query": "anafilaksi belirtileri nelerdir", "expected_intent": "medical_fact", "lang": "tr"}
+{"query": "warfarinin etki mekanizmasi ne", "expected_intent": "medical_fact", "lang": "tr"}
+{"query": "beta bloker kesilince ne olur", "expected_intent": "medical_fact", "lang": "tr"}
+{"query": "bu ilac pediatrik dozu ne kadar", "expected_intent": "medical_fact", "lang": "tr"}
 
-# --- product_fact: one specific TECHNICAL attribute/code of one product ---
-{"query": "de160100 kac watt ceker", "expected_intent": "product_fact", "lang": "tr"}
-{"query": "pxie jetson agx xavier modulunun kodu neydi", "expected_intent": "product_fact", "lang": "tr"}
-{"query": "de1000 chassis kac slotlu", "expected_intent": "product_fact", "lang": "tr"}
-{"query": "de150000 nedir ne ise yariyo", "expected_intent": "product_fact", "lang": "tr"}
+# --- clinical_decision: what to DO for a patient ("should I / recommend") ---
+{"query": "hastama arveles verebilir miyim basi agriyor", "expected_intent": "clinical_decision", "lang": "tr"}
+{"query": "bu hastaya ne yazayim", "expected_intent": "clinical_decision", "lang": "tr"}
+{"query": "gebe hastaya hangi agri kesiciyi onerirsin", "expected_intent": "clinical_decision", "lang": "tr"}
+{"query": "cocugum atesi var ne vereyim", "expected_intent": "clinical_decision", "lang": "tr"}
+{"query": "antibiyotik baslamali miyim enfeksiyon var", "expected_intent": "clinical_decision", "lang": "tr"}
+{"query": "hastamin tansiyonu yuksek ne yapayim", "expected_intent": "clinical_decision", "lang": "tr"}
+{"query": "insulin dozunu dusureyim mi hipoglisemi oldu", "expected_intent": "clinical_decision", "lang": "tr"}
+{"query": "yasli hastaya naproksen verebilir miyim", "expected_intent": "clinical_decision", "lang": "tr"}
+{"query": "bu hastayi hastaneye sevk edeyim mi", "expected_intent": "clinical_decision", "lang": "tr"}
+{"query": "operasyon oncesi ilaci keselim mi", "expected_intent": "clinical_decision", "lang": "tr"}
 
-# --- aggregation: count / filter / extreme TECHNICAL attribute across the catalogue ---
-{"query": "kac tane pxi urununuz var", "expected_intent": "aggregation", "lang": "tr"}
-{"query": "avionics kategorisinde neler var", "expected_intent": "aggregation", "lang": "tr"}
-{"query": "toplam kac urun var katalogda", "expected_intent": "aggregation", "lang": "tr"}
+# --- comparison: two or more drugs/doses/options ---
+{"query": "arveles mi dolorex mi daha guvenli", "expected_intent": "comparison", "lang": "tr"}
+{"query": "ibuprofen ile aspirin arasindaki fark", "expected_intent": "comparison", "lang": "tr"}
+{"query": "parasetamol mu ibuprofen mi ates icin", "expected_intent": "comparison", "lang": "tr"}
+{"query": "metformin ile gliklazid karsilastir", "expected_intent": "comparison", "lang": "tr"}
+{"query": "beta blokerler arasinda hangisi daha selektif", "expected_intent": "comparison", "lang": "tr"}
+{"query": "iki antihistaminik arasindaki fark ne", "expected_intent": "comparison", "lang": "tr"}
+{"query": "aspirin 100 ile 300 arasindaki fark", "expected_intent": "comparison", "lang": "tr"}
+{"query": "statinler arasinda hangisi daha potent", "expected_intent": "comparison", "lang": "tr"}
 
-# --- doc_question: answered from the document text itself ---
-{"query": "de1000 in calisma sicakligi nedir", "expected_intent": "doc_question", "lang": "tr"}
-{"query": "j1 konnektor pinout nasil", "expected_intent": "doc_question", "lang": "tr"}
-{"query": "bu cihaz ce belgeli mi", "expected_intent": "doc_question", "lang": "tr"}
-{"query": "de1000 nasil kuruluyo adim adim", "expected_intent": "doc_question", "lang": "tr"}
-{"query": "guc kaynagi gereksinimleri neler", "expected_intent": "doc_question", "lang": "tr"}
-{"query": "safety guidelines kisminda ne yaziyor", "expected_intent": "doc_question", "lang": "tr"}
+# --- interaction: drug-drug interaction check ---
+{"query": "arveles ile varfarin birlikte kullanilabilir mi", "expected_intent": "interaction", "lang": "tr"}
+{"query": "bu iki ilaci ayni anda verebilir miyim", "expected_intent": "interaction", "lang": "tr"}
+{"query": "aspirin ve ibuprofen birlikte olur mu", "expected_intent": "interaction", "lang": "tr"}
+{"query": "antibiyotik ile antiasit birlikte icilir mi", "expected_intent": "interaction", "lang": "tr"}
+{"query": "ssri ile tramadol etkilesir mi", "expected_intent": "interaction", "lang": "tr"}
+{"query": "metformin ile kontrast madde etkilesimi", "expected_intent": "interaction", "lang": "tr"}
+{"query": "warfarin ile amiodaron birlikte kullanilir mi", "expected_intent": "interaction", "lang": "tr"}
+{"query": "alkol bu ilacla alinir mi", "expected_intent": "interaction", "lang": "tr"}
 
-# --- comparison: two or more products / options against each other ---
-{"query": "de1000 mi de1100 mu daha iyi", "expected_intent": "comparison", "lang": "tr"}
-{"query": "pxi ile pxie arasindaki fark ne", "expected_intent": "comparison", "lang": "tr"}
-{"query": "de160100 vs de160200 karsilastir", "expected_intent": "comparison", "lang": "tr"}
-{"query": "jetson modulleri arasinda hangisi daha guclu", "expected_intent": "comparison", "lang": "tr"}
-{"query": "rugged daq ile normal daq farki nedir", "expected_intent": "comparison", "lang": "tr"}
+# --- library: about the uploaded documents themselves ---
+{"query": "kutuphanemde hangi belgeler var", "expected_intent": "library", "lang": "tr"}
+{"query": "bu hangi belgede geciyor", "expected_intent": "library", "lang": "tr"}
+{"query": "arveles kub belgesi yuklu mu", "expected_intent": "library", "lang": "tr"}
+{"query": "kac tane pdf yukledim", "expected_intent": "library", "lang": "tr"}
+{"query": "kaynak listesi gosterir misin", "expected_intent": "library", "lang": "tr"}
+{"query": "bu bilgi hangi sayfada yaziyor", "expected_intent": "library", "lang": "tr"}
 
-# --- recommendation: user wants a suggestion for their situation ---
-{"query": "aviyonik test icin ne onerirsin", "expected_intent": "recommendation", "lang": "tr"}
-{"query": "butcem 5000 tl ne alabilirim", "expected_intent": "recommendation", "lang": "tr"}
-{"query": "yapay zeka projesi icin uygun modul hangisi", "expected_intent": "recommendation", "lang": "tr"}
-{"query": "baslangic icin hangi daq sistemini alayim", "expected_intent": "recommendation", "lang": "tr"}
-{"query": "robotik uygulama icin ne tavsiye edersin", "expected_intent": "recommendation", "lang": "tr"}
-
-# --- visual_request: user wants to see an image/photo/drawing ---
-{"query": "de1000 in fotografini gosterir misin", "expected_intent": "visual_request", "lang": "tr"}
-{"query": "bu urunun gorseli var mi", "expected_intent": "visual_request", "lang": "tr"}
-{"query": "teknik cizimini gorebilir miyim", "expected_intent": "visual_request", "lang": "tr"}
-{"query": "de150000 nasil gorunuyo resmini at", "expected_intent": "visual_request", "lang": "tr"}
-{"query": "urun fotografi", "expected_intent": "visual_request", "lang": "tr"}
-
-# --- doc_download: user wants a file (datasheet, manual, catalogue, stp) ---
-{"query": "de1000 datasheet indir", "expected_intent": "doc_download", "lang": "tr"}
-{"query": "kullanim kilavuzunu nereden indirebilirim", "expected_intent": "doc_download", "lang": "tr"}
-{"query": "brosuru pdf olarak alabilir miyim", "expected_intent": "doc_download", "lang": "tr"}
-{"query": "de160100 datasheetini yollar misin", "expected_intent": "doc_download", "lang": "tr"}
-{"query": "katalogu indirmek istiyorum", "expected_intent": "doc_download", "lang": "tr"}
-{"query": "stp dosyasi var mi indirebilir miyim", "expected_intent": "doc_download", "lang": "tr"}
-
-# --- quote_or_contact: price/delivery/stock/bulk-purchase or reach sales ---
-{"query": "teklif almak istiyorum", "expected_intent": "quote_or_contact", "lang": "tr"}
-{"query": "satis ekibine nasil ulasirim", "expected_intent": "quote_or_contact", "lang": "tr"}
-{"query": "100 adet alsam fiyat ne olur", "expected_intent": "quote_or_contact", "lang": "tr"}
-{"query": "fiyat teklifi gonderir misiniz", "expected_intent": "quote_or_contact", "lang": "tr"}
-{"query": "sizinle nasil iletisime gecebilirim", "expected_intent": "quote_or_contact", "lang": "tr"}
-{"query": "toptan alimda indirim var mi kiminle konusayim", "expected_intent": "quote_or_contact", "lang": "tr"}
-{"query": "de1000 fiyati ne kadar", "expected_intent": "quote_or_contact", "lang": "tr"}
-{"query": "de160200 fiyat", "expected_intent": "quote_or_contact", "lang": "tr"}
-{"query": "en ucuz daq sistemi hangisi", "expected_intent": "quote_or_contact", "lang": "tr"}
-{"query": "5000 tl altindaki urunleri listeler misin", "expected_intent": "quote_or_contact", "lang": "tr"}
-{"query": "en pahali 3 urun ne", "expected_intent": "quote_or_contact", "lang": "tr"}
-{"query": "de1000 teslim suresi ne kadar", "expected_intent": "quote_or_contact", "lang": "tr"}
-{"query": "bu urun stokta var mi kac adet", "expected_intent": "quote_or_contact", "lang": "tr"}
-
-# --- out_of_scope: nothing to do with the product catalogue ---
+# --- out_of_scope: nothing to do with medicine or the documents ---
 {"query": "bugun hava nasil", "expected_intent": "out_of_scope", "lang": "tr"}
 {"query": "merhaba nasilsin", "expected_intent": "out_of_scope", "lang": "tr"}
 {"query": "bana bir fikra anlat", "expected_intent": "out_of_scope", "lang": "tr"}
 {"query": "dolar kac tl", "expected_intent": "out_of_scope", "lang": "tr"}
+{"query": "mac skoru kac oldu", "expected_intent": "out_of_scope", "lang": "tr"}
 {"query": "kanka naber", "expected_intent": "out_of_scope", "lang": "tr"}

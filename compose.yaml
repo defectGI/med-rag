@@ -47,9 +47,9 @@ services:
     environment:
       # Qdrant is a real dependency (top_n + evidence).
       QDRANT_URL: http://qdrant:6333
-      # Vektör koleksiyon adı — vectorize config/default.toml'daki
-      # `[qdrant].collection_name` ile birebir aynı olmalı (embedding modeli
-      # değişirse yeniden kurulur; bkz. DEPLOY.md).
+      # Vector collection name — must match `[qdrant].collection_name` in
+      # vectorize config/default.toml exactly (recreated if the embedding
+      # model changes; see DEPLOY.md).
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-medrag_chunks_qwen3_8b}
       # Operator override for chunk_store.py (CHUNK_CORPUS_ENV); unset falls
       # back to /app/chunker/storage inside the image -- where there are NO
@@ -76,17 +76,17 @@ services:
       # 404'd on the server -> every document 404). Reuses the env name the
       # pipeline already uses -- no new name.
       BELGELER_DIR: /corpus/BELGELER
-      # --- kütüphane API'si (medrag.api.library) ---
-      # api tarafı da pipeline ile AYNI dosya sözleşmelerine yazar/okur:
-      # registry, parse çıktısı, iş kuyruğu (ISLER_DIR), durum (DURUM_DIR).
-      # Pipeline-worker ile aynı /corpus yolları -- divergence'da upload çalışır
-      # ama işlenmez.
+      # --- library API (medrag.api.library) ---
+      # The api side also writes/reads the SAME file contracts as the pipeline:
+      # registry, parse output, job queue (ISLER_DIR), status (DURUM_DIR).
+      # Same /corpus paths as pipeline-worker -- on divergence upload works but
+      # is never processed.
       DOCUMENT_NODES_PATH: /corpus/document_nodes.json
       PARSED_OUTPUT_DIR: /corpus/parsed
       ISLER_DIR: /corpus/isler
       DURUM_DIR: /corpus/durum
-      # Tek kullanıcı şifresi (boşsa auth kapalı + uyarı). Gizli değer .env'den
-      # gelir; burada yalnız operatörün görebileceği bir ad var.
+      # Single-user password (if empty, auth is off + a warning). The secret
+      # value comes from .env; here only a name visible to the operator.
       MEDRAG_SIFRE: ${MEDRAG_SIFRE:-}
       # facts is dormant in med-rag; left pointing at the same path `pipeline`
       # would write to, should the structured path ever be re-enabled.
@@ -117,23 +117,23 @@ services:
       # able to open the logs from a file manager -- a named volume lives
       # under /var/lib/docker/volumes/... and needs root.
       - ${LOGS_HOST_DIR:-/home/user/med-rag/loglar}:/logs
-      # READ-WRITE (med-rag farkı): api artık korpusa YAZAR (upload ->
-      # BELGELER, registry, isler/, durum/). Orijinal projenin `:ro` kuralı
-      # burada geçerli değil -- api bir yazardır (pipeline-worker ile aynı
-      # dosya sözleşmelerini paylaşır).
+      # READ-WRITE (med-rag difference): the api is now a WRITER of the corpus
+      # (upload -> BELGELER, registry, isler/, durum/). The original project's
+      # `:ro` rule does NOT apply here -- the api is a writer (it shares the
+      # same file contracts as pipeline-worker).
       - ${CORPUS_HOST_DIR:-/home/user/med-rag/korpus}:/corpus
     restart: unless-stopped
 
   pipeline-worker:
     # =========================================================================
-    # YAŞAM DÖNGÜSÜ WORKER'ı (A6): `ISLER_DIR`'deki iş dosyalarını izler,
-    # tek-dosya parse→chunk→vectorize (process) ve türev temizliği (delete)
-    # koşar. api işleri dosya olarak yazar (import yok -- katman kuralı),
-    # worker pipeline imajında koşar.
+    # LIFECYCLE WORKER (A6): watches the job files in `ISLER_DIR`, runs the
+    # single-file parse→chunk→vectorize (process) and the derivate cleanup
+    # (delete). The api writes jobs as files (no import -- the layer rule);
+    # the worker runs in the pipeline image.
     #
-    # TEK replika: işler sırayla işlenir; ikinci bir worker aynı dosya
-    # sözleşmelerine yarışır (claim atomik ama parse/vectorize paraleli
-    # maliyet/GPU yarışı üretir).
+    # SINGLE REPLICA: jobs are processed sequentially; a second worker would
+    # race on the same file contracts (the claim is atomic but parallel
+    # parse/vectorize creates a cost/GPU race).
     # =========================================================================
     image: ${REGISTRY_IMAGE:-medrag-pipeline}:${TAG:-local}
     build:
@@ -143,26 +143,26 @@ services:
     env_file: .env
     environment:
       QDRANT_URL: http://qdrant:6333
-      # pipeline'ın AYNI data env'leri (tek /corpus, tek yazar kümesi).
+      # The pipeline's SAME data envs (single /corpus, single writer set).
       BELGELER_DIR: /corpus/BELGELER
       DOCUMENT_NODES_PATH: /corpus/document_nodes.json
       PARSED_OUTPUT_DIR: /corpus/parsed
       ISLER_DIR: /corpus/isler
       DURUM_DIR: /corpus/durum
-      # `run_parse_pipeline._bootstrap()` (worker'ın `_bootstrap_env`'i)
-      # PARSER_DIR'i ZORUNLU env olarak ister (pipeline servisinde var;
-      # eşleşmesi lazım -- yoksa worker kalkışta KeyError ile ölür).
+      # `run_parse_pipeline._bootstrap()` (the worker's `_bootstrap_env`)
+      # requires PARSER_DIR as a mandatory env (present in the pipeline service;
+      # must match -- otherwise the worker dies with KeyError at startup).
       PARSER_DIR: /app/src/medrag/pipeline/parser
-      # Worker, parse/chunk/vectorize aşamalarını pipeline ile AYNI env
-      # üzerinden koşar (bkz. pipeline servisi -- LLM/VLM/embedding değerleri
-      # .env'den gelir; parse'a özgü değerler task komutunda verilir).
+      # The worker runs the parse/chunk/vectorize stages on the SAME env as the
+      # pipeline (see the pipeline service -- LLM/VLM/embedding values come from
+      # .env; parse-specific values are given in the task command).
       CHUNKER_DIR: /corpus/chunker
       CHUNKS_OUTPUT_DIR: /corpus/chunks
-      # Vectorize girdi/çıktı + parser görsel blob deposu -- pipeline
-      # servisindekiyle AYNI olmalı; yoksa vectorize "VECTORIZE_INPUT_DIR
-      # tanımsız" deyip sessizce 0 nokta yazar (belge yine de "ready" görünür
-      # ama hiç embed edilmez -> chat/evidence boş) ve parser görselleri
-      # uçucu /app'e düşer (web /api/images 404).
+      # Vectorize input/output + the parser visual blob store -- must be the
+      # SAME as in the pipeline service; otherwise vectorize says "VECTORIZE_INPUT_DIR
+      # undefined" and silently writes 0 points (the document still shows
+      # "ready" but is never embedded -> empty chat/evidence) and the parser
+      # images fall into volatile /app (web /api/images 404).
       VECTORIZE_INPUT_DIR: /corpus/chunks
       VECTORIZE_OUTPUT_DIR: /corpus/vectorize
       STORAGE_IMAGES_DIR: /corpus/storage/images
@@ -175,8 +175,9 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ${CORPUS_HOST_DIR:-/home/user/med-rag/korpus}:/corpus
-    # NO healthcheck: worker'ın HTTP portu yok; "süreç yaşıyor mu" pgrep'siz
-    # ölçülemez. Restart politikası kesinti toparlamayı (recover) zaten sağlar.
+    # NO healthcheck: the worker has no HTTP port; "is the process alive"
+    # cannot be measured without pgrep. The restart policy already provides
+    # interruption recovery.
     restart: unless-stopped
 
   pipeline:

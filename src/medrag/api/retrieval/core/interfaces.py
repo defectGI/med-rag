@@ -77,21 +77,21 @@ def run_sync(retriever: Retriever, query: str, k: int = 10) -> list[RetrievalRes
 
 
 class IntentLabel(str, Enum):
-    """Intent set v1 (9 classes).
+    """Medical intent set (med-rag).
 
     The intent_classification module returns one of these and nothing more —
     the label -> retrieval-method mapping is the consuming project's job
-    (ARCHITECTURE.md #7).
+    (ARCHITECTURE.md #7). The taxonomy is driven by ANSWER POLICY (safety
+    tiers), not retrieval plumbing: med-rag's retrieval surface is a single
+    vector path (`default_topn`), so an intent is its own class only when it
+    changes how the answer is framed (citation/safety/refusal rules).
     """
 
-    PRODUCT_FACT = "product_fact"
-    AGGREGATION = "aggregation"
-    DOC_QUESTION = "doc_question"
+    MEDICAL_FACT = "medical_fact"
+    CLINICAL_DECISION = "clinical_decision"
     COMPARISON = "comparison"
-    RECOMMENDATION = "recommendation"
-    VISUAL_REQUEST = "visual_request"
-    DOC_DOWNLOAD = "doc_download"
-    QUOTE_OR_CONTACT = "quote_or_contact"
+    INTERACTION = "interaction"
+    LIBRARY = "library"
     OUT_OF_SCOPE = "out_of_scope"
 
 

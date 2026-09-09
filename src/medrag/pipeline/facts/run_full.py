@@ -50,7 +50,7 @@ from datetime import datetime
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent  # src/medrag/pipeline/facts/ (code, O-03)
-_REPO_ROOT = HERE.parents[3]  # medrag/ (facts/pipeline/urun/src/<repo>)
+_REPO_ROOT = HERE.parents[3]  # medrag/ (facts/pipeline/medrag/src/<repo>)
 # `atom_vs_chunk_bench` is OUT of the K-59 scope and did NOT return --
 # this variable now only exists to back `_FROZEN_SPEC_KEYS`'s (below,
 # unused in practice) fallback path.

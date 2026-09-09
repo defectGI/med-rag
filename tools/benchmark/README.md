@@ -46,7 +46,7 @@ a standalone CLI: `python -m tools.benchmark`.
 ## Install
 
 `tools/` is an installed package (root `pyproject.toml`
-`[tool.setuptools.packages.find] include = ["urun*", "tools*"]`); there
+`[tool.setuptools.packages.find] include = ["medrag*", "tools*"]`); there
 is no separate `requirements.txt`. From the repo root:
 
 ```

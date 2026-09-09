@@ -4,6 +4,14 @@ The system prompt is built from ``core.IntentLabel`` (single source of truth for
 the label set) plus a short definition and a few examples per class. Queries are
 typically Turkish and informal; the few-shot examples reflect that.
 
+med-rag is a medical document Q&A assistant: a physician asks her OWN uploaded
+library (drug KUB/prospectuses, textbooks, guidelines, notes). The label set
+reflects that domain. The key distinction is between a factual question whose
+answer is in the documents (`medical_fact`) and a request for a clinical
+decision (`clinical_decision`) -- the two are routed to the SAME retrieval but
+different answer policies (the decision one never makes the decision for the
+physician).
+
 Examples here are deliberately NOT taken from the eval golden set — reusing
 golden queries as few-shots would inflate eval scores dishonestly.
 """
@@ -12,68 +20,48 @@ from __future__ import annotations
 
 from medrag.api.retrieval.core import IntentLabel
 
-# One-line definition per intent (what the query is asking for).
-#
-# "price" is deliberately absent from PRODUCT_FACT/AGGREGATION: the `product`
-# table genuinely HAS list_price/price_break_* columns (see
-# facts/db/schema_rag.sql), so a query classified into either of these labels
-# can reach real SQL retrieval and surface an actual DB price number. That
-# contradicts QUOTE_OR_CONTACT's own strategy file (chatbot/
-# strategies/quote_or_contact.md: "A price quote (a concrete figure) is NOT
-# here and must not be generated -- don't make up a number, direct the user
-# to the channels above") -- the intent existed and routed correctly (see
-# [routing.intents] in config/default.toml), but listing price here steered
-# price questions AWAY from it. Purchasing-adjacent questions (delivery date,
-# stock quantity, bulk/volume pricing) are folded into QUOTE_OR_CONTACT below,
-# where they belong (all commercial, none are in the catalogue data).
 _DEFINITIONS: dict[IntentLabel, str] = {
-    IntentLabel.PRODUCT_FACT: (
-        "a single technical fact/attribute/code of ONE specific product"
+    IntentLabel.MEDICAL_FACT: (
+        "a factual question whose answer is in the uploaded medical documents: "
+        "a drug's dose/indication/contraindication/side effect/interaction, a "
+        "disease definition, a mechanism, a guideline recommendation"
     ),
-    IntentLabel.AGGREGATION: (
-        "counting, filtering, listing, or an extreme value of ANY technical "
-        "attribute (weight, temperature range, power, speed, ...) across MANY "
-        "products in the catalogue"
+    IntentLabel.CLINICAL_DECISION: (
+        "asking what to DO for a patient: whether to give a drug, what to "
+        "prescribe/recommend, how to manage a case, an explicit or implicit "
+        "\"should I / what would you recommend\""
     ),
-    IntentLabel.DOC_QUESTION: (
-        "a question whose answer is in the document text (how it works, specs "
-        "explained, procedures, certifications)"
+    IntentLabel.COMPARISON: (
+        "comparing two or more drugs/doses/treatment options"
     ),
-    IntentLabel.COMPARISON: "comparing two or more products/options",
-    IntentLabel.RECOMMENDATION: (
-        "asking for a suggestion for the user's own use case/budget"
+    IntentLabel.INTERACTION: (
+        "whether two or more drugs can be used together / a drug-drug "
+        "interaction check"
     ),
-    IntentLabel.VISUAL_REQUEST: (
-        "wanting to SEE an image/photo/technical drawing of a product"
-    ),
-    IntentLabel.DOC_DOWNLOAD: (
-        "wanting to obtain a FILE (datasheet, manual, brochure, catalogue, stp)"
-    ),
-    IntentLabel.QUOTE_OR_CONTACT: (
-        "any commercial/purchasing question: a price quote, delivery date/"
-        "lead time, stock/inventory quantity, bulk/volume purchase or "
-        "quantity discount, or wanting to reach sales/contact"
+    IntentLabel.LIBRARY: (
+        "a question ABOUT the uploaded documents themselves: which documents "
+        "are available, where something is written, listing sources"
     ),
     IntentLabel.OUT_OF_SCOPE: (
-        "anything unrelated to the product catalogue or documents"
+        "anything unrelated to medicine or the uploaded documents (weather, "
+        "sports, code, personal chatter)"
     ),
 }
 
 # Few-shot examples: (query, label). Kept distinct from the golden set.
 _FEWSHOT: list[tuple[str, IntentLabel]] = [
-    ("de2200 agirligi kac kg", IntentLabel.PRODUCT_FACT),
-    ("10 amperin uzerinde kac model var", IntentLabel.AGGREGATION),
-    ("en genis sicaklik araliginda calisan urun hangisi", IntentLabel.AGGREGATION),
-    ("bu modul hangi protokolleri destekliyor", IntentLabel.DOC_QUESTION),
-    ("de2200 ile de2300 hangisi hizli", IntentLabel.COMPARISON),
-    ("laboratuvar kurulumu icin ne alsam iyi olur", IntentLabel.RECOMMENDATION),
-    ("bunun arkadan gorunusu nasil resmi var mi", IntentLabel.VISUAL_REQUEST),
-    ("el kitabini pdf yollayin", IntentLabel.DOC_DOWNLOAD),
-    ("bayilik icin kiminle gorusmeliyim", IntentLabel.QUOTE_OR_CONTACT),
-    ("de2200 fiyati ne kadar", IntentLabel.QUOTE_OR_CONTACT),
-    ("bu urunun teslim suresi ne kadar", IntentLabel.QUOTE_OR_CONTACT),
-    ("stokta kac adet var", IntentLabel.QUOTE_OR_CONTACT),
-    ("100 adet alirsam indirim yapar misiniz", IntentLabel.QUOTE_OR_CONTACT),
+    ("arveles dozu kac mg", IntentLabel.MEDICAL_FACT),
+    ("bu ilacin kontrendikasyonu ne", IntentLabel.MEDICAL_FACT),
+    ("hipertansiyon tedavisinde ilk secenek nedir", IntentLabel.MEDICAL_FACT),
+    ("deksketoprofenin yan etkileri neler", IntentLabel.MEDICAL_FACT),
+    ("hastama arveles verebilir miyim basi agriyor", IntentLabel.CLINICAL_DECISION),
+    ("bu hastaya ne yazayim", IntentLabel.CLINICAL_DECISION),
+    ("arveles mi dolorex mi daha guvenli", IntentLabel.COMPARISON),
+    ("ibuprofen ile aspirin arasindaki fark", IntentLabel.COMPARISON),
+    ("arveles ile varfarin birlikte kullanilabilir mi", IntentLabel.INTERACTION),
+    ("bu iki ilaci ayni anda verebilir miyim", IntentLabel.INTERACTION),
+    ("kutuphanemde hangi belgeler var", IntentLabel.LIBRARY),
+    ("bu hangi belgede geciyor", IntentLabel.LIBRARY),
     ("mac skoru kac oldu", IntentLabel.OUT_OF_SCOPE),
 ]
 
@@ -90,9 +78,9 @@ def intent_catalogue_block() -> str:
     needs an LLM to tell these labels apart (not just this module's own
     classify-only prompt) should reuse this instead of restating the label
     set as a bare name list. A bare list with no definitions/examples gives
-    the model nothing to disambiguate near-miss pairs (e.g. recommendation
-    vs. aggregation), which biases it toward whichever label "sounds right"
-    by default.
+    the model nothing to disambiguate near-miss pairs (e.g. medical_fact
+    vs. clinical_decision), which biases it toward whichever label "sounds
+    right" by default.
     """
     defs = "\n".join(f"- {label.value}: {desc}" for label, desc in _DEFINITIONS.items())
     examples = "\n".join(f'  "{q}" -> {label.value}' for q, label in _FEWSHOT)
@@ -103,18 +91,21 @@ def build_system_prompt() -> str:
     """Assemble the system prompt: task, label definitions, examples, rules."""
     valid = ", ".join(labels_list())
     return (
-        "You classify a user's chatbot query into exactly ONE intent label.\n"
-        "The queries are about an industrial product catalogue and its "
-        "documents. Queries are usually in Turkish and written informally "
-        "(lowercase, missing diacritics, typos, no punctuation). Classify by "
-        "meaning, not surface form.\n\n"
+        "You classify a physician's chatbot query into exactly ONE intent "
+        "label.\n"
+        "The queries are about the user's OWN uploaded medical library (drug "
+        "KUB/prospectuses, textbooks, guidelines, notes). Queries are usually "
+        "in Turkish and written informally (lowercase, missing diacritics, "
+        "typos, no punctuation). Classify by meaning, not surface form.\n\n"
         f"{intent_catalogue_block()}\n\n"
         "Rules:\n"
         "- Answer with the label string ONLY — no punctuation, no explanation, "
         "no quotes.\n"
         f"- The answer MUST be exactly one of: {valid}\n"
-        "- If the query does not clearly fit any product/document intent, use "
-        "out_of_scope."
+        "- A clinical question (\"should I give X to my patient\") is IN scope "
+        "-- classify it as clinical_decision, NOT out_of_scope.\n"
+        "- Only genuinely non-medical/non-document topics (weather, sports, "
+        "code) are out_of_scope."
     )
 
 

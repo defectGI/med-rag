@@ -5,9 +5,9 @@ import { cn } from "@/lib/utils";
 import { isCited, parseCitations } from "@/lib/api";
 
 /**
- * Kanıt kutusu (B6): cevabın dayandığı kaynak chunk'lar. Cevap metnindeki
- * citation'lar çözümlenip YALNIZCA cite edilen kanıtlar gösterilir (top-N'in
- * tamamı değil). Her satır tıklanabilir -> ilgili dosyanın o parçası açılır.
+ * Evidence box (B6): the source chunks the answer relies on. The citations in
+ * the answer text are resolved and ONLY the cited evidence is shown (not the
+ * whole top-N). Each row is clickable -> that part of the file opens.
  */
 export function EvidenceBox({
   chunks,
@@ -23,7 +23,7 @@ export function EvidenceBox({
   const selected = useMemo(() => {
     if (!chunks?.length) return [];
     const { labels, indices } = parseCitations(answerText ?? "");
-    // Etiket eşleşmesi çalışırsa tam o kanıtları göster.
+    // If label matching works, show exactly that evidence.
     if (labels.length) {
       const cited = chunks.filter((c) => isCited(c, labels));
       if (cited.length) return cited;
@@ -34,9 +34,9 @@ export function EvidenceBox({
         .filter((c): c is EvidenceChunk => Boolean(c));
       if (byIndex.length) return byIndex;
     }
-    // Citation'lar çözülemezse: cevabın cite ettiği KAYNAK SAYISI kadar en
-    // alakalı chunk'ı göster (asso model başlık kullanıp eşleşmezse). Top-N'in
-    // tamamını (10) dökmek yerine yalnız cevabın dayandığı kadarı.
+    // If citations can't be resolved: show as many most relevant chunks as the
+    // number of SOURCES the answer cites (in case the "asso" model uses a header
+    // and doesn't match). Instead of dumping all of top-N (10), only that many.
     const k = labels.length || indices.length;
     return chunks.slice(0, Math.max(1, k));
   }, [chunks, answerText]);

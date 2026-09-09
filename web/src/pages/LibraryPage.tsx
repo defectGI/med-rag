@@ -18,6 +18,9 @@ function isImage(file: string): boolean {
 function isPdf(file: string): boolean {
   return /\.pdf$/i.test(file);
 }
+function isText(file: string): boolean {
+  return /\.(md|markdown|txt|html?)$/i.test(file);
+}
 
 export function LibraryPage({
   documents,
@@ -33,6 +36,7 @@ export function LibraryPage({
   const [dragOver, setDragOver] = useState(false);
   const [viewer, setViewer] = useState<{ doc_id: string; file: string; markdown: string } | null>(null);
   const [viewTab, setViewTab] = useState<"md" | "original">("md");
+  const [original, setOriginal] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<DocumentItem | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -61,8 +65,20 @@ export function LibraryPage({
       const content = await api.documentContent(doc.doc_id);
       setViewer({ doc_id: doc.doc_id, file: content.file_name, markdown: content.markdown });
       setViewTab("md");
+      setOriginal(null);
     } catch {
       toast.error("Ayrıştırılmış içerik henüz yok");
+    }
+  };
+
+  const showOriginal = async () => {
+    setViewTab("original");
+    if (!viewer || !isText(viewer.file) || original !== null) return;
+    try {
+      const res = await api.documentOriginal(viewer.doc_id);
+      setOriginal(res.content);
+    } catch {
+      setOriginal("");
     }
   };
 
@@ -204,7 +220,7 @@ export function LibraryPage({
                 </button>
                 <button
                   className={`px-3 py-1 ${viewTab === "original" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
-                  onClick={() => setViewTab("original")}
+                  onClick={() => void showOriginal()}
                 >
                   Orijinal
                 </button>
@@ -236,6 +252,14 @@ export function LibraryPage({
                   alt={viewer.file}
                   className="mx-auto max-h-[70vh] rounded-md border object-contain"
                 />
+              ) : viewer && isText(viewer.file) ? (
+                <pre className="whitespace-pre-wrap break-words rounded-md border bg-muted/30 p-4 text-sm leading-relaxed">
+                  {original === null
+                    ? "Orijinal içerik yükleniyor…"
+                    : original === ""
+                      ? "Orijinal içerik okunamadı."
+                      : original}
+                </pre>
               ) : (
                 <div className="flex h-[40vh] flex-col items-center justify-center gap-3 text-muted-foreground">
                   <p>Bu biçim tarayıcıda gösterilemiyor.</p>
