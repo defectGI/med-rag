@@ -6,6 +6,7 @@ import { LibraryPage } from "@/pages/LibraryPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { NotesPage } from "@/pages/NotesPage";
 import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import type { DocumentItem } from "@/types";
 
 export default function App() {
@@ -69,21 +70,26 @@ export default function App() {
         }}
       />
       <main className="flex-1 overflow-y-auto p-5">
-        {view === "library" && (
+        {/* Üç görünüm de her zaman mount kalır; etkin olmayanlar CSS'le
+            gizlenir. Koşullu render (&&) unmount yapıp sohbet mesajlarını ve
+            yazılmakta olan not taslağını kaybettiriyordu (sekme geçişi). */}
+        <div className={cn("h-full", view !== "library" && "hidden")}>
           <LibraryPage
             documents={documents}
             onUploaded={() => void refresh()}
             onDelete={(docId) => void api.deleteDocument(docId).then(refresh)}
           />
-        )}
-        {view === "chat" && <ChatPage />}
-        {view === "notes" && (
+        </div>
+        <div className={cn("h-full", view !== "chat" && "hidden")}>
+          <ChatPage />
+        </div>
+        <div className={cn("h-full", view !== "notes" && "hidden")}>
           <NotesPage
             notes={notes}
             onChanged={() => void refresh()}
             onDelete={(docId) => void api.deleteDocument(docId).then(refresh)}
           />
-        )}
+        </div>
       </main>
       <Toaster richColors position="top-center" />
     </div>
