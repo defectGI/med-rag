@@ -50,7 +50,8 @@ logger = logging.getLogger("medrag.api.library")
 #: Parser'ın gerçekten okuyabildiği uzantılar (parsers/registry). UI
 #: whitelist'i budur; listede olmayanlar 415 ile reddedilir.
 ALLOWED_EXTENSIONS = frozenset(
-    {".pdf", ".docx", ".pptx", ".xlsx", ".html", ".htm", ".md", ".markdown"})
+    {".pdf", ".docx", ".pptx", ".xlsx", ".html", ".htm", ".md", ".markdown",
+     ".jpg", ".jpeg", ".png"})
 
 #: Dosya başına üst limit (K16/Açık-5). `MEDRAG_MAX_YUKLEME_MB` ile aşılır.
 DEFAULT_MAX_UPLOAD_MB = 200
