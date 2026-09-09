@@ -138,22 +138,6 @@ End-to-end test against a running stack:
 python tools/e2e_smoke.py --base-url http://localhost:8507 --sample sample.pdf
 ```
 
-## Status
-
-Work is grouped as follows:
-
-- **A — Document lifecycle** (upload/delete/change/status/queue/notes): done.
-- **B — Frontend** (Vite + React + TS + Tailwind + shadcn/ui): done.
-- **C — Evidence & prompts** (mandatory citation, conflict policy, not-found +
-  clinician note, TR/EN language, router): done.
-- **D — Design system** (Wada Sanzo ivory + sun, light/dark): done.
-- **E — Deploy & ops** (compose + volumes + nightly backup/restore + logs + auth):
-  done. See [`DEPLOY.md`](DEPLOY.md).
-- **F — Quality**: the offline suite runs at its documented baseline; a few
-  dormant-path tests (specs.db / text2sql / nightly-report) fail on a clean
-  checkout. `ruff check src tools` and the
-  layer-contract tests are green. The smoke test is ready.
-
 ## Deploy
 
 Setup, backup/restore, observability and security live in [`DEPLOY.md`](DEPLOY.md).
