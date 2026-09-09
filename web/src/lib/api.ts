@@ -215,3 +215,34 @@ export function formatDate(iso: string | null | undefined): string {
 }
 
 export type { ChatMessage };
+
+/**
+ * Cevap metnindeki citation rozetlerini çıkarır: hem `(Kaynak: X, s. 4)` /
+ * `(Source: X, p. 4)` sözlü biçimi hem `[1]`/`[2]` numaralı biçimi.
+ * Dönüş: `{labels, indices}` -- labels sözlü kaynak etiketleri
+ * (X "file.pdf" veya doc_id), indices ise `[n]` biçimindeki 1-bazlı numaralar.
+ */
+export function parseCitations(text: string): { labels: string[]; indices: number[] } {
+  const labels: string[] = [];
+  const indices: number[] = [];
+  const paren = /\((?:Kaynak|Source):\s*([^,)]+)(?:,\s*s\.\s*([^)]+))?\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = paren.exec(text))) {
+    if (m[1]) labels.push(m[1].trim());
+  }
+  const num = /\[(\d+)\]/g;
+  while ((m = num.exec(text))) {
+    indices.push(parseInt(m[1], 10));
+  }
+  return { labels, indices: [...new Set(indices)] };
+}
+
+/** Bir kanıt chunk'ı, cevapta cite edilmiş ki küçük bir kimlikle eşleşir. */
+export function isCited(chunk: EvidenceChunk, labels: string[]): boolean {
+  if (labels.length === 0) return false;
+  const hay = `${chunk.doc_id} ${chunk.id} ${chunk.file_name ?? ""} ${chunk.section ?? ""}`.toLowerCase();
+  return labels.some((l) => {
+    const t = l.toLowerCase().replace(/^.*[:/\\]/, "").trim();
+    return t.length > 0 && hay.includes(t);
+  });
+}

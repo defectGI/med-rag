@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { AnswerText } from "@/components/AnswerText";
 import { EvidenceBox } from "@/components/EvidenceBox";
+import { EvidenceViewer } from "@/components/EvidenceViewer";
 import { api } from "@/lib/api";
 import type { ChatMessage, EvidenceChunk, StepEvent } from "@/types";
 
@@ -14,6 +15,7 @@ export function ChatPage() {
   const [streaming, setStreaming] = useState(false);
   const [currentStep, setCurrentStep] = useState<string | null>(null);
   const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [viewChunk, setViewChunk] = useState<EvidenceChunk | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -126,8 +128,8 @@ export function ChatPage() {
                   </span>
                 ) : (
                   <>
-                    <AnswerText text={msg.text} />
-                    <EvidenceBox chunks={msg.chunks ?? []} />
+                    <AnswerText text={msg.text} chunks={msg.chunks ?? []} onOpen={setViewChunk} />
+                    <EvidenceBox chunks={msg.chunks ?? []} answerText={msg.text} onOpen={setViewChunk} />
                   </>
                 )}
               </div>
@@ -160,6 +162,7 @@ export function ChatPage() {
           {streaming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
         </Button>
       </form>
+      {viewChunk && <EvidenceViewer chunk={viewChunk} onClose={() => setViewChunk(null)} />}
     </div>
   );
 }
