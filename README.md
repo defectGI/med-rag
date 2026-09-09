@@ -1,30 +1,26 @@
 # med-rag
 
-Medical document RAG assistant: it ingests clinical PDFs (digital **and** scanned/photo),
-DOCX, PPTX, XLSX, HTML and Markdown, converts them into a chunked vector corpus in
-Qdrant, and answers questions **with mandatory source citations**. In a medical setting
-the provenance of every claim matters, so each answer links back to the exact document,
-page and section it came from.
+Ask questions about your medical documents and get answers with citations.
 
-The model layer is provider-agnostic (local Ollama, any OpenAI-compatible endpoint,
-OpenRouter or Anthropic). External calls are made over HTTP — no model is downloaded or
-run on this machine.
+med-rag reads PDFs (digital and scanned/photo), DOCX, PPTX, XLSX, HTML and
+Markdown, stores them as vectors in Qdrant, and answers questions that point to
+the document, page and section they came from.
 
-## Highlights
+Models are not run here. med-rag talks to them over HTTP: local Ollama, any
+OpenAI-compatible endpoint, OpenRouter, or Anthropic. It never downloads a model.
 
-- **6 input formats** → a common intermediate representation (IR) + clean Markdown.
-- **Three PDF paths**: deterministic (digital), VLM-verified (hybrid) and
-  render+VLM (**scanned/photo PDF**). Images are OCR'd, tables are reconstructed from
-  the PDF's own vector geometry, and the model only arbitrates low-confidence regions.
-- **Source-first answers**: every factual claim carries a `doc_id + page + section`
-  citation (inline `[n]` badges + a numbered source list). Missing sources are reported
-  honestly, and conflicting sources are shown side by side with a warning.
-- **Self-growing corpus**: upload a file → event-driven pipeline
-  (`parse → chunk → vectorize`) → searchable; delete removes every trace; re-uploading a
-  changed file drops the old derivation and ingests the new one. Your own notes join the
-  corpus and are cited like documents.
-- **Web UX**: Vite + React + TypeScript + Tailwind + shadcn/ui, Wada Sanzo ivory + sun
-  palette, light/dark theme, live status badges, note module and an evidence viewer.
+## What it does
+
+- **Reads 6 formats** into one internal format (IR) plus clean Markdown.
+- **Handles scanned PDFs.** It OCRs images and rebuilds tables from the page
+  geometry; the model only judges the low-confidence parts.
+- **Cites every claim.** Answers carry `doc_id + page + section`. If no source
+  is found it says so; if two sources disagree you see both, with a warning.
+- **Grows with your files.** Upload → parse → chunk → vectorize. Delete removes
+  every trace. Re-uploading a changed file replaces the old version. Your notes
+  join the corpus and are cited too.
+- **Web UI.** React (Vite + Tailwind + shadcn/ui), light/dark theme, status
+  badges, notes, and an evidence viewer.
 
 ## Architecture
 
@@ -54,32 +50,32 @@ run on this machine.
                              └───────────────────┘
 ```
 
-**Layer rule:** no component imports another directly; the coupling is the database and
-the filesystem. The independence of `medrag.api` ↔ `medrag.pipeline` and the bottom
-placement of `medrag.core` are enforced by import-linter contracts in `pyproject.toml`.
+**Layer rule:** no component imports another. They meet only through the
+database and the filesystem. `medrag.api` and `medrag.pipeline` stay separate,
+and `medrag.core` sits at the bottom. `pyproject.toml` enforces this with
+import-linter.
 
 ## Components
 
 | Component | What it does | Code |
 |---|---|---|
-| **chatbot-corpus** | Scans the `BELGELER/` tree and produces the `document_nodes.json` registry. Catalog-less mode: with no product whitelist every document is registered. | [`chatbot-corpus/document_info/`](chatbot-corpus/document_info/README.md) |
-| **parser** | 6 formats → common IR + Markdown. Three PDF paths; image OCR; table reconstruction. | [`src/medrag/pipeline/parser/`](src/medrag/pipeline/parser/README.md) |
-| **pipeline/cli** | Stage orchestration + nightly run (`medrag-nightly`). | [`src/medrag/pipeline/cli/`](src/medrag/pipeline/cli/README.md) |
-| **chunker** | Token-based, structure-preserving chunks carrying `doc`/`section`/`page` metadata — the basis of evidence attribution. Fully offline. | [`src/medrag/pipeline/chunker/`](src/medrag/pipeline/chunker/README.md) |
-| **vectorize** | Embedding → Qdrant upsert (delete-then-reinsert + staleness gate). | [`src/medrag/pipeline/vectorize/`](src/medrag/pipeline/vectorize/README.md) |
-| **api (chatbot)** | Orchestration: intent → router → flow (`default_topn` main path) → answer model. Web UI + evidence panel. | [`src/medrag/api/`](src/medrag/api/) |
-| **api/retrieval** | Independent RAG retrieval layer: intent classification, top_n (Qdrant), query rewriting, raptor, db_query. | [`src/medrag/api/retrieval/`](src/medrag/api/retrieval/) · [`retrieval/ARCHITECTURE.md`](retrieval/ARCHITECTURE.md) |
-| **facts (dormant)** | Evidence-based spec extraction → `specs.db` + text2sql path. Present but unused in med-rag. | [`src/medrag/pipeline/facts/`](src/medrag/pipeline/facts/) |
+| **chatbot-corpus** | Scans `BELGELER/` and builds `document_nodes.json`. | [`chatbot-corpus/document_info/`](chatbot-corpus/document_info/README.md) |
+| **parser** | 6 formats → IR + Markdown. Three PDF paths; OCR; tables. | [`src/medrag/pipeline/parser/`](src/medrag/pipeline/parser/README.md) |
+| **pipeline/cli** | Runs stages and the nightly run (`medrag-nightly`). | [`src/medrag/pipeline/cli/`](src/medrag/pipeline/cli/README.md) |
+| **chunker** | Splits IR into chunks with `doc`/`section`/`page` metadata. Offline. | [`src/medrag/pipeline/chunker/`](src/medrag/pipeline/chunker/README.md) |
+| **vectorize** | Embeds chunks and writes them to Qdrant. | [`src/medrag/pipeline/vectorize/`](src/medrag/pipeline/vectorize/README.md) |
+| **api (chatbot)** | Intent → router → flow → answer. Web UI + evidence panel. | [`src/medrag/api/`](src/medrag/api/) |
+| **api/retrieval** | RAG retrieval: intent classification, top_n, query rewriting, raptor, db_query. | [`src/medrag/api/retrieval/`](src/medrag/api/retrieval/) · [`retrieval/ARCHITECTURE.md`](retrieval/ARCHITECTURE.md) |
+| **facts (dormant)** | Extracts facts into `specs.db` + text2sql. Not used here. | [`src/medrag/pipeline/facts/`](src/medrag/pipeline/facts/) |
 | **panel** | Read-only lineage/staleness panel. | [`src/medrag/api/panel/`](src/medrag/api/panel/README.md) |
-| **core** | Shared infrastructure: config loader, sqlite helpers, OpenAI-compatible LLM client. | [`src/medrag/core/`](src/medrag/core/) |
-| **tools/benchmark** | Scores parser Markdown against the source PDF using a VLM judge. | [`tools/benchmark/`](tools/benchmark/README.md) |
+| **core** | Shared config loader, sqlite helpers, LLM client. | [`src/medrag/core/`](src/medrag/core/) |
+| **tools/benchmark** | Scores parser output against the source PDF with a VLM judge. | [`tools/benchmark/`](tools/benchmark/README.md) |
 | **packages/text2sql-native** | Two-stage text2SQL engine used by facts (dormant). | [`packages/text2sql-native/`](packages/text2sql-native/README.md) |
 
-The root-level data directories (`chatbot/`, `vectorize/`, `chunker/`, `facts/`,
-`pipeline/`, `retrieval/`) hold **only data, configuration and documentation**; all code
-is under `src/medrag/`.
+The root folders `chatbot/`, `vectorize/`, `chunker/`, `facts/`, `pipeline/` and
+`retrieval/` hold only data, config and docs. All code is in `src/medrag/`.
 
-## Installation
+## Install
 
 Python **≥ 3.11**.
 
@@ -89,25 +85,22 @@ uv sync --extra parse --extra serve --extra dev
 pip install -e ".[parse,serve,dev]"
 ```
 
-Model/embedding calls are made over HTTP (local Ollama or a hosted OpenAI-compatible
-endpoint); no model is downloaded or executed on this machine.
-
 ## Quick start
 
-### Docker (recommended — one command, full stack)
+### Docker (recommended)
 
 ```bash
-cp .env.example .env          # fill in: MEDRAG_SIFRE (password) + LLM/embedding values
+cp .env.example .env          # set MEDRAG_SIFRE (password) + LLM/embedding values
 docker compose up -d --build  # web + pipeline-worker + pipeline + qdrant
 ```
 
-Browser: `http://localhost:8507`. Details: [`DEPLOY.md`](DEPLOY.md) ·
-daily usage: [`USAGE.md`](USAGE.md).
+Open `http://localhost:8507`. Setup: [`DEPLOY.md`](DEPLOY.md) · usage:
+[`USAGE.md`](USAGE.md).
 
-### CLI (development / single stage)
+### CLI (development)
 
 ```bash
-# Parse a single file (scanned PDF included)
+# Parse one file, scanned PDFs included
 python src/medrag/pipeline/parser/scripts/to_markdown.py document.pdf
 
 # Stage by stage
@@ -119,72 +112,70 @@ python -m medrag.pipeline.vectorize                  # chunk → embed → Qdran
 medrag-nightly                # scan → parse → chunk → ownership → facts → load → vectorize
 medrag-nightly --from chunk   # start from a given stage
 
-# Chatbot (development server)
+# Dev server
 python -m medrag.api.webapp   # http://127.0.0.1:8507
 ```
 
-Corpus layout: `BELGELER/` tree (PDFs) → `document_nodes.json` → `parsed/` →
-`chunks/all_chunks.json` → Qdrant. All paths are configured from the component
-`.env.example` templates (see [`CONFIG.md`](CONFIG.md)).
+Corpus layout: `BELGELER/` (PDFs) → `document_nodes.json` → `parsed/` →
+`chunks/all_chunks.json` → Qdrant. Each `.env.example` template sets its own
+paths (see [`CONFIG.md`](CONFIG.md)).
 
-**Critical alignment:** `EMBEDDING_MODEL` and the Qdrant collection name must match
-byte-for-byte across vectorize, retrieval and the chatbot.
+**Keep these in sync:** `EMBEDDING_MODEL` and the Qdrant collection name must be
+the same in vectorize, retrieval and the chatbot.
 
 ## Tests
 
-The whole test suite is **offline** — no network, model or API key required:
+The suite is **offline** — no network, model or API key needed:
 
 ```bash
 pytest src/ tools/ -q
 python -m pytest src/medrag/tests/test_import_contracts.py   # layer boundaries
 ```
 
-End-to-end acceptance against a running stack:
+End-to-end test against a running stack:
 
 ```bash
 python tools/e2e_smoke.py --base-url http://localhost:8507 --sample sample.pdf
 ```
 
-## Project status
+## Status
 
-The task groups in [`PLAN.md`](PLAN.md):
+Task groups in [`PLAN.md`](PLAN.md):
 
-- **A — Document lifecycle** (upload/delete/change/status/job queue/notes): complete.
-- **B — Frontend** (Vite + React + TS + Tailwind + shadcn/ui): complete.
-- **C — Evidence & prompt** (mandatory citation, conflict policy, not-found + clinician
-  note, TR/EN language policy, router simplification): complete.
-- **D — Design system** (Wada Sanzo ivory + sun palette, light/dark theme): complete.
-- **E — Deploy & operations** (compose + volume + nightly backup/restore + logs + auth
-  hardening): complete; see [`DEPLOY.md`](DEPLOY.md).
-- **F — Quality & acceptance**: the offline suite runs at its documented
-  baseline (a small set of pre-existing failures on dormant specs.db / text2sql /
-  nightly-report paths — see [`PLAN.md`](PLAN.md)); `ruff check src tools` and the
-  layer-contract tests are green; the end-to-end smoke test `tools/e2e_smoke.py`
-  is ready against a running stack.
+- **A — Document lifecycle** (upload/delete/change/status/queue/notes): done.
+- **B — Frontend** (Vite + React + TS + Tailwind + shadcn/ui): done.
+- **C — Evidence & prompts** (mandatory citation, conflict policy, not-found +
+  clinician note, TR/EN language, router): done.
+- **D — Design system** (Wada Sanzo ivory + sun, light/dark): done.
+- **E — Deploy & ops** (compose + volumes + nightly backup/restore + logs + auth):
+  done. See [`DEPLOY.md`](DEPLOY.md).
+- **F — Quality**: the offline suite runs at its documented baseline; a few
+  dormant-path tests (specs.db / text2sql / nightly-report) fail on a clean
+  checkout — see [`PLAN.md`](PLAN.md). `ruff check src tools` and the
+  layer-contract tests are green. The smoke test is ready.
 
-## Deploy (Docker)
+## Deploy
 
-For setup, backup/restore drill, observability and security notes, see
-[`DEPLOY.md`](DEPLOY.md). Short version:
+Setup, backup/restore, observability and security live in [`DEPLOY.md`](DEPLOY.md).
+Short version:
 
 ```bash
 cp .env.example .env && docker compose up -d --build
 ```
 
 Services: `web` (SPA + API, port 8507), `pipeline-worker` (job queue:
-parse→chunk→vectorize), `pipeline` (exec target for the nightly run/backup,
-`sleep infinity`), `qdrant`. The corpus lives in a single host directory
-(`CORPUS_HOST_DIR` → `/corpus`); `web` and `pipeline-worker` read-write the corpus (the
-upload API is a writer).
+parse→chunk→vectorize), `pipeline` (idle exec target for the nightly run),
+`qdrant`. The corpus sits in one host directory (`CORPUS_HOST_DIR` → `/corpus`).
+`web` and `pipeline-worker` read and write it; the upload API is the writer.
 
 ## Origin
 
-This repository was adapted from an internal product-document assistant
-(`doc-rag-pipeline`, package name `urun`) by copy–strip–rename. The purpose differs: here
-every answer to a clinical question — disease facts, drug doses — must cite the document,
-page and section it is derived from. The product-catalog, WhatsApp bridge and
-structured-database path were removed; what remains is the document lifecycle,
-retrieval and a citation-forced chatbot. That original work is not public.
+This started as a copy of an internal product-document assistant
+(`doc-rag-pipeline`, package name `urun`), renamed for a different job: here
+every clinical answer must cite the document, page and section it comes from.
+The product catalog, WhatsApp bridge and structured-DB path were removed. What
+is left is the document lifecycle, retrieval, and a chatbot that must cite.
+That original project is not public.
 
 ## License
 
