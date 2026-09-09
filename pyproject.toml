@@ -13,7 +13,7 @@ version = "0.1.0"
 description = "Medical document RAG assistant: evidence-cited answers from PDFs, images, tables and office documents (Qdrant + provider-agnostic LLM)."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Mehmet Kaan Durupunar" }]
 keywords = [
@@ -33,10 +33,6 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-[project.urls]
-Homepage = "https://github.com/defectgi/med-rag"
-Repository = "https://github.com/defectgi/med-rag"
-Documentation = "https://github.com/defectgi/med-rag#readme"
 # "base" group -- three packages that every subproject
 # (parser/chunker/vectorize/api/benchmark) used to declare separately now live
 # here once. Versions were derived from the existing 13 requirements/pyproject
@@ -53,6 +49,11 @@ dependencies = [
     # installed as a transitive dependency; now declared directly.
     "psutil>=5.9",
 ]
+
+[project.urls]
+Homepage = "https://github.com/defectGI/med-rag"
+Repository = "https://github.com/defectGI/med-rag"
+Documentation = "https://github.com/defectGI/med-rag#readme"
 
 # "parse" group -- dependencies of the document-parsing (parser/) side only.
 # Because embedding calls go to Ollama over HTTP (the worker installs no heavy
